@@ -7,3 +7,8 @@ dependencies {
 tasks.named('jar') {
     from('COPYING', 'COPYING.LESSER')
 }
+
+// Aseprite sources sit beside the PNGs they make; only the PNGs ship, in the jar and the pack.
+tasks.withType(ProcessResources).configureEach {
+    exclude '**/*.aseprite'
+}

@@ -10,6 +10,7 @@ import ir.mehradn.cavesurvey.event.LootTableModification;
 import ir.mehradn.cavesurvey.item.CaveMapItems;
 import ir.mehradn.cavesurvey.item.CaveMapSight;
 import ir.mehradn.cavesurvey.item.CaveMapTab;
+import ir.mehradn.cavesurvey.item.CaveSurveys;
 import ir.mehradn.cavesurvey.item.crafting.CaveMapRecipes;
 
 /** Mod entrypoint: registers the cave map items, their recipes, and loot and tab hooks. */
@@ -23,6 +24,7 @@ public class CaveSurvey implements ModInitializer {
         CaveMapItems.init();
         CaveMapRecipes.init();
         CaveMapTab.register();
+        CaveSurveys.init();
         ItemGroupModification.register();
         LootTableModification.register();
         PolymerResourcePackUtils.addModAssets(MOD_ID);

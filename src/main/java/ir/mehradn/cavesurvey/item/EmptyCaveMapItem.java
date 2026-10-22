@@ -15,9 +15,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.item.MapItem;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
 
 /** An empty cave map. Using it makes a filled cave map centred on the player and surveys once. */
 public class EmptyCaveMapItem extends Item implements PolymerItem {
@@ -52,10 +50,7 @@ public class EmptyCaveMapItem extends Item implements PolymerItem {
                 1.0F, 1.0F);
 
         ItemStack map = CaveMapItem.create(serverLevel, player.getBlockX(), player.getBlockZ());
-        MapItemSavedData data = MapItem.getSavedData(map, serverLevel);
-        if (data != null) {
-            CaveMapItem.updateMap(serverLevel, player, data, CaveMapSight.get(map));
-        }
+        CaveSurveys.request(serverLevel, player, map);
 
         if (itemStack.isEmpty()) {
             return InteractionResult.SUCCESS.heldItemTransformedTo(map);

@@ -1,11 +1,10 @@
 package ir.mehradn.cavesurvey.item;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
 
-import com.google.common.collect.Iterables;
-import com.google.common.collect.LinkedHashMultiset;
-import com.google.common.collect.Multisets;
 import eu.pb4.polymer.core.api.item.PolymerItem;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.fabricmc.loader.api.FabricLoader;
@@ -32,6 +31,7 @@ import net.minecraft.world.item.component.MapPostProcessing;
 import net.minecraft.world.item.component.TooltipDisplay;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.material.MapColor;
+import net.minecraft.world.level.saveddata.maps.MapBanner;
 import net.minecraft.world.level.saveddata.maps.MapId;
 import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
 
@@ -43,6 +43,8 @@ public class CaveMapItem extends MapItem implements PolymerItem {
     /** The width and height of a map in pixels. */
     public static final int MAP_SIZE = 128;
     private static final int BANNER_BLOCK_RADIUS = 64;
+    // Every MapColor id is below this (MapColor.MATERIAL_COLORS).
+    private static final int MAP_COLOR_COUNT = 64;
     private static final Logger LOGGER = LoggerFactory.getLogger(CaveSurvey.MOD_ID);
     // Logs each survey's server-thread time in the dev environment, or with the JVM property set.
     private static final boolean LOG_SCAN_TIMING =
@@ -83,6 +85,8 @@ public class CaveMapItem extends MapItem implements PolymerItem {
         long startNanos = System.nanoTime();
         CaveMappingAlgorithm.PixelMatrix matrix =
                 CaveMappingAlgorithm.run(headPos, blockRadius, level);
+        int[] colorCounts = new int[MAP_COLOR_COUNT];
+        int[] seenColors = new int[scale * scale];
 
         for (int pixelX = relativeX - pixelRadius; pixelX < relativeX + pixelRadius; pixelX++) {
             double previousAverageHeight = 0.0;
@@ -98,22 +102,25 @@ public class CaveMapItem extends MapItem implements PolymerItem {
                 double averageFluidDepth = 0.0;
                 int pixelCount = 0;
                 int brightCount = 0;
-                LinkedHashMultiset<MapColor> innerColors = LinkedHashMultiset.create();
+                int seen = 0;
                 for (int innerX = 0; innerX < scale; innerX++) {
                     for (int innerZ = 0; innerZ < scale; innerZ++) {
-                        CaveMappingAlgorithm.PixelInfo info =
-                                matrix.get(realX + innerX, realZ + innerZ);
-                        if (info == null) {
+                        int x = realX + innerX;
+                        int z = realZ + innerZ;
+                        if (!matrix.reached(x, z)) {
                             continue;
                         }
 
                         pixelCount++;
-                        if (info.reachesSky()) {
+                        if (matrix.reachesSky(x, z)) {
                             brightCount++;
                         }
-                        averageFluidDepth += info.fluidDepth();
-                        averageHeight += info.y();
-                        innerColors.add(info.color());
+                        averageFluidDepth += matrix.fluidDepth(x, z);
+                        averageHeight += matrix.floorY(x, z);
+                        int colorId = matrix.colorId(x, z);
+                        if (colorCounts[colorId]++ == 0) {
+                            seenColors[seen++] = colorId;
+                        }
                     }
                 }
 
@@ -124,8 +131,7 @@ public class CaveMapItem extends MapItem implements PolymerItem {
                 averageHeight /= pixelCount;
                 averageFluidDepth /= pixelCount;
 
-                MapColor color = Iterables.getFirst(Multisets.copyHighestCountFirst(innerColors),
-                        MapColor.NONE);
+                MapColor color = MapColor.byId(mostCommonColor(colorCounts, seenColors, seen));
 
                 int brightnessLevel;
                 if (color == MapColor.WATER) {
@@ -191,20 +197,31 @@ public class CaveMapItem extends MapItem implements PolymerItem {
                 || MAP_SIZE + pixelRadius + 4 < relativeZ || relativeZ < -pixelRadius - 4) {
             return;
         }
-        for (int pixelX = relativeX - pixelRadius; pixelX < relativeX + pixelRadius; pixelX++) {
-            for (int pixelZ = relativeZ - pixelRadius; pixelZ < relativeZ + pixelRadius; pixelZ++) {
-                if (pixelX < 0 || pixelZ < 0 || pixelX >= MAP_SIZE || pixelZ >= MAP_SIZE) {
-                    continue;
-                }
-                int realX = (centerX / scale + pixelX - MAP_SIZE / 2) * scale;
-                int realZ = (centerZ / scale + pixelZ - MAP_SIZE / 2) * scale;
+        // The square of pixels near the viewer, clipped to the map, as blocks.
+        int minPixelX = Math.max(relativeX - pixelRadius, 0);
+        int maxPixelX = Math.min(relativeX + pixelRadius - 1, MAP_SIZE - 1);
+        int minPixelZ = Math.max(relativeZ - pixelRadius, 0);
+        int maxPixelZ = Math.min(relativeZ + pixelRadius - 1, MAP_SIZE - 1);
+        if (minPixelX > maxPixelX || minPixelZ > maxPixelZ) {
+            return;
+        }
+        int minX = (centerX / scale + minPixelX - MAP_SIZE / 2) * scale;
+        int maxX = (centerX / scale + maxPixelX - MAP_SIZE / 2) * scale + scale - 1;
+        int minZ = (centerZ / scale + minPixelZ - MAP_SIZE / 2) * scale;
+        int maxZ = (centerZ / scale + maxPixelZ - MAP_SIZE / 2) * scale + scale - 1;
 
-                for (int innerX = 0; innerX < scale; innerX++) {
-                    for (int innerZ = 0; innerZ < scale; innerZ++) {
-                        data.checkBanners(level, realX + innerX, realZ + innerZ);
-                    }
-                }
+        // checkBanners walks every marker on each call, so call it only for markers in the square.
+        // Collected first, since checkBanners removes from the collection being walked.
+        List<BlockPos> inSquare = new ArrayList<>();
+        for (MapBanner banner : data.getBanners()) {
+            BlockPos pos = banner.pos();
+            if (pos.getX() >= minX && pos.getX() <= maxX
+                    && pos.getZ() >= minZ && pos.getZ() <= maxZ) {
+                inSquare.add(pos);
             }
+        }
+        for (BlockPos pos : inSquare) {
+            data.checkBanners(level, pos.getX(), pos.getZ());
         }
     }
 
@@ -262,5 +279,20 @@ public class CaveMapItem extends MapItem implements PolymerItem {
         }
         updateMap(level, player, data, CaveMapSight.get(itemStack));
         return InteractionResult.SUCCESS;
+    }
+
+    // The most counted of the first `seen` colour ids, the earliest seen on a tie, as a
+    // count-sorted LinkedHashMultiset gives; clears the counts it read for the next pixel.
+    private static int mostCommonColor(int[] counts, int[] seenIds, int seen) {
+        int best = seenIds[0];
+        for (int i = 1; i < seen; i++) {
+            if (counts[seenIds[i]] > counts[best]) {
+                best = seenIds[i];
+            }
+        }
+        for (int i = 0; i < seen; i++) {
+            counts[seenIds[i]] = 0;
+        }
+        return best;
     }
 }

@@ -1,9 +1,7 @@
 package ir.mehradn.cavesurvey.util;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Queue;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -13,270 +11,320 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.material.MapColor;
 
 /**
  * Floods outward from a start position through connected air and records, per block column, the
  * floor that a map pixel should show.
+ *
+ * <p>Each column climbs from where the flood entered it to its ceiling, then descends to its
+ * floor, noting on the way down the first height at which each neighbouring column is open too.
+ * Sections that hold only air are stepped over whole. Chunks are read only when already loaded:
+ * the flood stops at an unloaded chunk instead of loading it.
  */
 public final class CaveMappingAlgorithm {
-    private CaveMappingAlgorithm() {
+    private static final LevelChunkSection[] UNLOADED = new LevelChunkSection[0];
+    private static final int[][] NEIGHBOURS = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
+
+    private final Level level;
+    private final int minY;
+    // One past the top block, the old exclusive getMaxBuildHeight(): the climb may end there.
+    private final int topExclusive;
+    private final int minSectionY;
+    private final Long2ObjectOpenHashMap<LevelChunkSection[]> sections =
+            new Long2ObjectOpenHashMap<>();
+    private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+    private final int[] neighbourY = new int[NEIGHBOURS.length];
+    // Most reads hit the chunk of the read before, so it skips the map lookup.
+    private boolean hasLastChunk;
+    private long lastChunkKey;
+    private LevelChunkSection[] lastChunk;
+
+    private CaveMappingAlgorithm(Level level) {
+        this.level = level;
+        this.minY = level.getMinY();
+        this.topExclusive = level.getMaxY() + 1;
+        this.minSectionY = level.getMinSectionY();
     }
 
     /** Surveys every column within {@code updateRadius} of the start that the flood reaches. */
     public static PixelMatrix run(BlockPos startPos, int updateRadius, Level level) {
-        PixelMatrix matrix = new PixelMatrix(updateRadius, startPos.getX(), startPos.getZ());
-        Queue<BlockPos> updates = new ArrayDeque<>();
-        updates.add(startPos);
+        return new CaveMappingAlgorithm(level).flood(startPos, updateRadius);
+    }
 
-        while (!updates.isEmpty()) {
-            BlockPos pos = updates.remove();
-            if (matrix.outOfRange(pos) || matrix.get(pos) != null) {
-                continue;
+    // Breadth-first over columns; a column is surveyed from the height the flood first entered it.
+    private PixelMatrix flood(BlockPos startPos, int updateRadius) {
+        PixelMatrix matrix = new PixelMatrix(updateRadius, startPos.getX(), startPos.getZ());
+        LongArrayFIFOQueue queue = new LongArrayFIFOQueue();
+        matrix.markQueued(startPos.getX(), startPos.getZ());
+        queue.enqueue(startPos.asLong());
+
+        while (!queue.isEmpty()) {
+            long packed = queue.dequeueLong();
+            int x = BlockPos.getX(packed);
+            int z = BlockPos.getZ(packed);
+            surveyColumn(x, BlockPos.getY(packed), z, matrix);
+            for (int d = 0; d < NEIGHBOURS.length; d++) {
+                int y = this.neighbourY[d];
+                int nx = x + NEIGHBOURS[d][0];
+                int nz = z + NEIGHBOURS[d][1];
+                if (y != Integer.MIN_VALUE && matrix.markQueued(nx, nz)) {
+                    queue.enqueue(BlockPos.asLong(nx, y, nz));
+                }
             }
-            matrix.set(pos, update(pos, updates, level));
         }
         return matrix;
     }
 
-    // Surveys one column and queues the neighbouring columns its air connects to.
-    private static PixelInfo update(BlockPos pos, Queue<BlockPos> updates, Level level) {
-        ColorGrabber colorGrabber = new ColorGrabber(level, pos);
-        CloudCalculations cloud = new CloudCalculations(pos, colorGrabber);
+    // Surveys one column into the matrix and leaves each neighbour's entry height in neighbourY.
+    private void surveyColumn(int x, int startY, int z, PixelMatrix matrix) {
+        int y = startY;
+        while (y < this.topExclusive) {
+            int airTop = airRunTop(x, y + 1, z);
+            if (airTop >= y + 1) {
+                y = Math.min(airTop, this.topExclusive);
+            } else if (colorless(x, y + 1, z)) {
+                y++;
+            } else {
+                break;
+            }
+        }
+        int ceiling = y;
 
-        if (cloud.north != null) {
-            updates.add(cloud.north);
+        int pending = NEIGHBOURS.length;
+        for (int d = 0; d < NEIGHBOURS.length; d++) {
+            this.neighbourY[d] = Integer.MIN_VALUE;
         }
-        if (cloud.south != null) {
-            updates.add(cloud.south);
+        while (true) {
+            for (int d = 0; d < NEIGHBOURS.length && pending > 0; d++) {
+                if (this.neighbourY[d] == Integer.MIN_VALUE
+                        && colorless(x + NEIGHBOURS[d][0], y, z + NEIGHBOURS[d][1])) {
+                    this.neighbourY[d] = y;
+                    pending--;
+                }
+            }
+            if (y <= this.minY) {
+                break;
+            }
+            if (pending == 0) {
+                int airBottom = airRunBottom(x, y - 1, z);
+                if (airBottom <= y - 1) {
+                    y = airBottom;
+                    continue;
+                }
+            }
+            if (!colorless(x, y - 1, z)) {
+                y--;
+                break;
+            }
+            y--;
         }
-        if (cloud.west != null) {
-            updates.add(cloud.west);
-        }
-        if (cloud.east != null) {
-            updates.add(cloud.east);
-        }
-        return cloud.pixelInfo;
+        matrix.set(x, z, this, y, ceiling);
     }
 
-    // One past the top block, the old exclusive getMaxBuildHeight(): the climb may end there.
-    private static int topExclusive(Level level) {
-        return level.getMaxY() + 1;
+    // A block lets the flood through when it has no map colour, as air does. The two lowest
+    // layers always read as bedrock, and an unloaded chunk blocks the flood.
+    private boolean colorless(int x, int y, int z) {
+        if (y <= this.minY + 1) {
+            return false;
+        }
+        LevelChunkSection[] chunk = sectionsAt(x, z);
+        if (chunk == UNLOADED) {
+            return false;
+        }
+        return mapColor(stateIn(chunk, x, y, z), x, y, z) == MapColor.NONE;
     }
 
-    /**
-     * What one surveyed column shows.
-     *
-     * @param color the map colour of the column's floor
-     * @param y the floor's height
-     * @param fluidDepth how many fluid blocks stand on the floor, 0 for a dry floor
-     * @param reachesSky whether the column is open to the top of the world
-     */
-    public record PixelInfo(MapColor color, int y, int fluidDepth, boolean reachesSky) {
+    // The top y of the all-air section holding (x, y, z), or y - 1 when that section is not all air
+    // or y is in the bedrock layers. Above the world counts as air without limit.
+    private int airRunTop(int x, int y, int z) {
+        if (y >= this.topExclusive) {
+            return Integer.MAX_VALUE;
+        }
+        if (y <= this.minY + 1 || !sectionIsAir(x, y, z)) {
+            return y - 1;
+        }
+        return SectionPos.sectionToBlockCoord(SectionPos.blockToSectionCoord(y)) + 15;
+    }
+
+    // The bottom y of the all-air run below the column through (x, y, z), clamped above the
+    // bedrock layers, or y + 1 when (x, y, z) is not in an all-air section.
+    private int airRunBottom(int x, int y, int z) {
+        if (y <= this.minY + 1 || !sectionIsAir(x, y, z)) {
+            return y + 1;
+        }
+        int sectionBottom = SectionPos.sectionToBlockCoord(SectionPos.blockToSectionCoord(y));
+        return Math.max(sectionBottom, this.minY + 2);
+    }
+
+    // Whether the section holding (x, y, z) is loaded and holds only air.
+    private boolean sectionIsAir(int x, int y, int z) {
+        LevelChunkSection[] chunk = sectionsAt(x, z);
+        if (chunk == UNLOADED) {
+            return false;
+        }
+        int index = SectionPos.blockToSectionCoord(y) - this.minSectionY;
+        return index < 0 || index >= chunk.length || chunk[index].hasOnlyAir();
+    }
+
+    // The sections of the chunk holding column (x, z), or UNLOADED; cached for the whole scan.
+    private LevelChunkSection[] sectionsAt(int x, int z) {
+        int chunkX = SectionPos.blockToSectionCoord(x);
+        int chunkZ = SectionPos.blockToSectionCoord(z);
+        long key = ChunkPos.pack(chunkX, chunkZ);
+        if (this.hasLastChunk && key == this.lastChunkKey) {
+            return this.lastChunk;
+        }
+        LevelChunkSection[] chunk = this.sections.get(key);
+        if (chunk == null) {
+            LevelChunk loaded = this.level.getChunkSource().getChunkNow(chunkX, chunkZ);
+            chunk = loaded == null ? UNLOADED : loaded.getSections();
+            this.sections.put(key, chunk);
+        }
+        this.hasLastChunk = true;
+        this.lastChunkKey = key;
+        this.lastChunk = chunk;
+        return chunk;
+    }
+
+    // The block at (x, y, z) in a loaded chunk's sections, as LevelChunk.getBlockState reads it.
+    private BlockState stateIn(LevelChunkSection[] chunk, int x, int y, int z) {
+        int index = SectionPos.blockToSectionCoord(y) - this.minSectionY;
+        if (index < 0 || index >= chunk.length || chunk[index].hasOnlyAir()) {
+            return Blocks.AIR.defaultBlockState();
+        }
+        return chunk[index].getBlockState(x & 15, y & 15, z & 15);
+    }
+
+    // The block's map colour; level and position go along for parity with BlockState's signature.
+    private MapColor mapColor(BlockState state, int x, int y, int z) {
+        return state.getMapColor(this.level, this.cursor.set(x, y, z));
+    }
+
+    // What the floor at (x, floorY, z) shows: its colour and the depth of any fluid on it.
+    private void describeFloor(int x, int floorY, int z, int[] out) {
+        if (floorY <= this.minY + 1) {
+            out[0] = mapColor(Blocks.BEDROCK.defaultBlockState(), x, floorY, z).id;
+            out[1] = 0;
+            return;
+        }
+        LevelChunkSection[] chunk = sectionsAt(x, z);
+        if (chunk == UNLOADED) {
+            out[0] = -1;
+            return;
+        }
+        BlockState state = stateIn(chunk, x, floorY, z);
+        FluidState fluid = state.getFluidState();
+        if (fluid.isEmpty()) {
+            out[0] = mapColor(state, x, floorY, z).id;
+            out[1] = 0;
+            return;
+        }
+        // A fluid in a block without a sturdy top shows as the fluid, as on a vanilla map.
+        this.cursor.set(x, floorY, z);
+        BlockState shown = state.isFaceSturdy(this.level, this.cursor, Direction.UP)
+                ? state : fluid.createLegacyBlock();
+        out[0] = mapColor(shown, x, floorY, z).id;
+        int depth = 0;
+        int y = floorY;
+        while (y > this.minY && !stateIn(chunk, x, y, z).getFluidState().isEmpty()) {
+            y--;
+            depth++;
+        }
+        out[1] = depth;
     }
 
     /** The surveyed columns, a square of side {@code 2 * size} centred on the start. */
     public static final class PixelMatrix {
-        /** Half the side of the square, in blocks. */
-        public final int size;
-        /** The x of the square's centre. */
-        public final int centerX;
-        /** The z of the square's centre. */
-        public final int centerZ;
-        /** The columns, indexed by offset from the square's low corner. */
-        public PixelInfo[][] matrix;
+        private final int size;
+        private final int centerX;
+        private final int centerZ;
+        private final int side;
+        private final boolean[] queued;
+        private final boolean[] reached;
+        private final byte[] colors;
+        private final int[] floors;
+        private final int[] fluidDepths;
+        private final boolean[] skies;
+        private final int[] floorScratch = new int[2];
 
-        /** Creates an empty square of side {@code 2 * halfSize} centred on the given column. */
-        public PixelMatrix(int halfSize, int centerX, int centerZ) {
+        private PixelMatrix(int halfSize, int centerX, int centerZ) {
             this.size = halfSize;
             this.centerX = centerX;
             this.centerZ = centerZ;
-            this.matrix = new PixelInfo[halfSize * 2][halfSize * 2];
+            this.side = halfSize * 2;
+            int cells = this.side * this.side;
+            this.queued = new boolean[cells];
+            this.reached = new boolean[cells];
+            this.colors = new byte[cells];
+            this.floors = new int[cells];
+            this.fluidDepths = new int[cells];
+            this.skies = new boolean[cells];
         }
 
-        /** Returns whether the column lies outside the square. */
-        public boolean outOfRange(int x, int z) {
-            return this.centerX - this.size > x || x >= this.centerX + this.size
-                    || this.centerZ - this.size > z || z >= this.centerZ + this.size;
+        /** Returns whether the flood reached the column and found what it shows. */
+        public boolean reached(int x, int z) {
+            int i = index(x, z);
+            return i >= 0 && this.reached[i];
         }
 
-        /** Returns whether the position's column lies outside the square. */
-        public boolean outOfRange(BlockPos pos) {
-            return outOfRange(pos.getX(), pos.getZ());
+        /** Returns the {@link MapColor} id of a reached column's floor. */
+        public int colorId(int x, int z) {
+            return this.colors[index(x, z)] & 0xff;
         }
 
-        /** Returns the column's survey, or null when it is outside or was never reached. */
-        public PixelInfo get(int x, int z) {
-            if (outOfRange(x, z)) {
-                return null;
+        /** Returns the height of a reached column's floor. */
+        public int floorY(int x, int z) {
+            return this.floors[index(x, z)];
+        }
+
+        /** Returns how many fluid blocks stand on a reached column's floor. */
+        public int fluidDepth(int x, int z) {
+            return this.fluidDepths[index(x, z)];
+        }
+
+        /** Returns whether a reached column is open to the top of the world. */
+        public boolean reachesSky(int x, int z) {
+            return this.skies[index(x, z)];
+        }
+
+        // Marks the column queued; false when it is outside the square or was already queued.
+        private boolean markQueued(int x, int z) {
+            int i = index(x, z);
+            if (i < 0 || this.queued[i]) {
+                return false;
             }
-            return this.matrix[x - this.centerX + this.size][z - this.centerZ + this.size];
+            this.queued[i] = true;
+            return true;
         }
 
-        /** Returns the survey of the position's column, or null. */
-        public PixelInfo get(BlockPos pos) {
-            return get(pos.getX(), pos.getZ());
-        }
-
-        /** Stores the survey of the position's column, ignoring columns outside the square. */
-        public void set(BlockPos pos, PixelInfo info) {
-            if (outOfRange(pos)) {
+        // Records what the column shows, or nothing when its floor lies in an unloaded chunk.
+        private void set(int x, int z, CaveMappingAlgorithm scan, int floorY, int ceiling) {
+            int i = index(x, z);
+            if (i < 0) {
                 return;
             }
-            int offsetX = pos.getX() - this.centerX + this.size;
-            int offsetZ = pos.getZ() - this.centerZ + this.size;
-            this.matrix[offsetX][offsetZ] = info;
-        }
-    }
-
-    /** Reads map colours around one column from that column's chunk and its edge neighbours. */
-    public static final class ColorGrabber {
-        /** The level being surveyed. */
-        public final Level level;
-        private final ArrayList<LevelChunk> chunks;
-
-        /** Loads the column's chunk, and the neighbour across any chunk edge the column touches. */
-        public ColorGrabber(Level level, BlockPos pos) {
-            this.level = level;
-
-            ChunkPos chunkPos = new ChunkPos(pos.getX() >> 4, pos.getZ() >> 4);
-            this.chunks = new ArrayList<>(
-                    Collections.singletonList(level.getChunk(chunkPos.x(), chunkPos.z())));
-
-            int innerX = pos.getX() & 15;
-            int innerZ = pos.getZ() & 15;
-            if (innerX == 0) {
-                this.chunks.add(level.getChunk(chunkPos.x() - 1, chunkPos.z()));
-            }
-            if (innerX == 15) {
-                this.chunks.add(level.getChunk(chunkPos.x() + 1, chunkPos.z()));
-            }
-            if (innerZ == 0) {
-                this.chunks.add(level.getChunk(chunkPos.x(), chunkPos.z() - 1));
-            }
-            if (innerZ == 15) {
-                this.chunks.add(level.getChunk(chunkPos.x(), chunkPos.z() + 1));
-            }
-        }
-
-        /** Returns the block's map colour, or null when its chunk was not loaded here. */
-        public MapColor getColor(BlockPos pos) {
-            if (pos.getY() <= this.level.getMinY() + 1) {
-                return Blocks.BEDROCK.defaultBlockState().getMapColor(this.level, pos);
-            }
-
-            ChunkPos chunkPos = new ChunkPos(SectionPos.blockToSectionCoord(pos.getX()),
-                    SectionPos.blockToSectionCoord(pos.getZ()));
-            for (LevelChunk chunk : this.chunks) {
-                if (chunk.getPos().equals(chunkPos)) {
-                    return chunk.getBlockState(pos).getMapColor(this.level, pos);
-                }
-            }
-            return null;
-        }
-
-        /** Returns what a column with this floor and ceiling shows, or null off its chunks. */
-        public PixelInfo getPixelInfo(BlockPos pos, int ceiling) {
-            boolean reachesSky = ceiling == topExclusive(this.level);
-            if (pos.getY() <= this.level.getMinY() + 1) {
-                MapColor bedrock = Blocks.BEDROCK.defaultBlockState().getMapColor(this.level, pos);
-                return new PixelInfo(bedrock, pos.getY(), 0, reachesSky);
-            }
-
-            ChunkPos chunkPos = new ChunkPos(SectionPos.blockToSectionCoord(pos.getX()),
-                    SectionPos.blockToSectionCoord(pos.getZ()));
-            for (LevelChunk chunk : this.chunks) {
-                if (!chunk.getPos().equals(chunkPos)) {
-                    continue;
-                }
-                BlockState state = chunk.getBlockState(pos);
-
-                MapColor color;
-                int fluidDepth = 0;
-                if (state.getFluidState().isEmpty()) {
-                    color = state.getMapColor(this.level, pos);
-                } else {
-                    color = getCorrectStateForFluidBlock(this.level, state, pos)
-                            .getMapColor(this.level, pos);
-                    BlockPos fluidPos = pos;
-                    while (fluidPos.getY() > this.level.getMinY()
-                            && !chunk.getBlockState(fluidPos).getFluidState().isEmpty()) {
-                        fluidPos = fluidPos.below();
-                        fluidDepth++;
-                    }
-                }
-                return new PixelInfo(color, pos.getY(), fluidDepth, reachesSky);
-            }
-            return null;
-        }
-
-        // A fluid in a block without a sturdy top shows as the fluid, as on a vanilla map.
-        private static BlockState getCorrectStateForFluidBlock(Level level, BlockState state,
-                BlockPos pos) {
-            FluidState fluidState = state.getFluidState();
-            if (!fluidState.isEmpty() && !state.isFaceSturdy(level, pos, Direction.UP)) {
-                return fluidState.createLegacyBlock();
-            }
-            return state;
-        }
-    }
-
-    /**
-     * One column's survey: climbs to the ceiling, then descends to the floor, noting each
-     * neighbouring column whose air connects to this one.
-     */
-    public static final class CloudCalculations {
-        /** The first connected position found in the column to the north, or null. */
-        public BlockPos north;
-        /** The first connected position found in the column to the south, or null. */
-        public BlockPos south;
-        /** The first connected position found in the column to the west, or null. */
-        public BlockPos west;
-        /** The first connected position found in the column to the east, or null. */
-        public BlockPos east;
-        /** What the column shows, or null when it ran off the loaded chunks. */
-        public PixelInfo pixelInfo;
-
-        /** Surveys the column through the given position. */
-        public CloudCalculations(BlockPos initialPosition, ColorGrabber colorGrabber) {
-            if (initialPosition == null) {
+            scan.describeFloor(x, floorY, z, this.floorScratch);
+            if (this.floorScratch[0] < 0) {
                 return;
             }
-            BlockPos pos = initialPosition;
-            int top = topExclusive(colorGrabber.level);
-
-            while (pos.getY() < top && colorless(pos.above(), colorGrabber)) {
-                pos = pos.above();
-            }
-            int ceiling = pos.getY();
-
-            do {
-                if (this.north == null && colorless(pos.north(), colorGrabber)) {
-                    this.north = pos.north();
-                }
-                if (this.south == null && colorless(pos.south(), colorGrabber)) {
-                    this.south = pos.south();
-                }
-                if (this.west == null && colorless(pos.west(), colorGrabber)) {
-                    this.west = pos.west();
-                }
-                if (this.east == null && colorless(pos.east(), colorGrabber)) {
-                    this.east = pos.east();
-                }
-
-                if (pos.getY() <= colorGrabber.level.getMinY()) {
-                    break;
-                }
-                pos = pos.below();
-            } while (colorless(pos, colorGrabber));
-
-            this.pixelInfo = colorGrabber.getPixelInfo(pos, ceiling);
+            this.reached[i] = true;
+            this.colors[i] = (byte) this.floorScratch[0];
+            this.floors[i] = floorY;
+            this.fluidDepths[i] = this.floorScratch[1];
+            this.skies[i] = ceiling == scan.topExclusive;
         }
 
-        // A block with no map colour, such as air, lets the survey pass through it.
-        private static boolean colorless(BlockPos pos, ColorGrabber colorGrabber) {
-            return colorGrabber.getColor(pos) == MapColor.NONE;
+        // The column's index, or -1 outside the square.
+        private int index(int x, int z) {
+            int offsetX = x - this.centerX + this.size;
+            int offsetZ = z - this.centerZ + this.size;
+            if (offsetX < 0 || offsetX >= this.side || offsetZ < 0 || offsetZ >= this.side) {
+                return -1;
+            }
+            return offsetX * this.side + offsetZ;
         }
     }
 }

@@ -18,8 +18,7 @@ public enum CaveMapUpgrade {
     IMPROVING(Items.AMETHYST_SHARD) {
         @Override
         public boolean canApply(ItemStack map, Level level) {
-            MapItemSavedData data = MapItem.getSavedData(map, level);
-            return data != null && !data.locked && CaveMapSight.get(map) < CaveMapSight.MAX;
+            return unlocked(map, level) && CaveMapSight.get(map) < CaveMapSight.MAX;
         }
 
         @Override
@@ -33,8 +32,7 @@ public enum CaveMapUpgrade {
     LOCKING(Items.GLASS_PANE) {
         @Override
         public boolean canApply(ItemStack map, Level level) {
-            MapItemSavedData data = MapItem.getSavedData(map, level);
-            return data != null && !data.locked;
+            return unlocked(map, level);
         }
 
         @Override
@@ -61,4 +59,10 @@ public enum CaveMapUpgrade {
 
     /** Returns a single upgraded copy of the given filled cave map. */
     public abstract ItemStack apply(ItemStack map);
+
+    // Whether the map has data and is not locked.
+    private static boolean unlocked(ItemStack map, Level level) {
+        MapItemSavedData data = MapItem.getSavedData(map, level);
+        return data != null && !data.locked;
+    }
 }

@@ -27,31 +27,42 @@ public final class CaveMapDrawing {
     public static boolean reaches(BlockPos headPos, int blockRadius, int centerX, int centerZ,
             int scaleShift) {
         int scale = 1 << scaleShift;
-        int relativeX = (headPos.getX() - centerX) / scale + MAP_SIZE / 2;
-        int relativeZ = (headPos.getZ() - centerZ) / scale + MAP_SIZE / 2;
+        int relativeX = pixelOf(headPos.getX(), centerX, scale);
+        int relativeZ = pixelOf(headPos.getZ(), centerZ, scale);
         int pixelRadius = blockRadius / scale;
         return !(MAP_SIZE + pixelRadius + 4 < relativeX || relativeX < -pixelRadius - 4
                 || MAP_SIZE + pixelRadius + 4 < relativeZ || relativeZ < -pixelRadius - 4);
     }
 
+    /** Returns the pixel along one axis that holds a block, as vanilla's map update places one. */
+    public static int pixelOf(int block, int center, int scale) {
+        return (block - center) / scale + MAP_SIZE / 2;
+    }
+
+    /** Returns the lowest block along one axis that a pixel covers. */
+    public static int areaMin(int pixel, int center, int scale) {
+        return (center / scale + pixel - MAP_SIZE / 2) * scale;
+    }
+
     /**
      * Returns the pixels a survey sets, each packed as {@code pixelX << 16 | pixelZ << 8 | colour};
      * read them back with {@link #pixelX}, {@link #pixelZ} and {@link #color}. Adds each set
-     * pixel's new anchor height to {@code anchorsOut}, in the same order.
+     * pixel's new anchor height to {@code anchorsOut}, in the same order. A pixel that shows the
+     * ceiling static ({@link #noiseColor}) keeps the anchor it had.
      *
      * @param anchors the map's anchors before this survey, which also give its centre and scale
-     * @param drawsOpenSky whether to draw floors open to the sky; if not, such a pixel gets the
-     *     ceiling static ({@link #noiseColor}) and keeps the anchor it had
      */
     public static IntArrayList draw(CaveMappingAlgorithm.PixelMatrix matrix, BlockPos headPos,
-            int blockRadius, PixelAnchors anchors, IntArrayList anchorsOut, boolean drawsOpenSky) {
+            int blockRadius, PixelAnchors anchors, IntArrayList anchorsOut) {
         int scale = 1 << anchors.scaleShift();
         int centerX = anchors.centerX();
         int centerZ = anchors.centerZ();
-        int relativeX = (headPos.getX() - centerX) / scale + MAP_SIZE / 2;
-        int relativeZ = (headPos.getZ() - centerZ) / scale + MAP_SIZE / 2;
+        int relativeX = pixelOf(headPos.getX(), centerX, scale);
+        int relativeZ = pixelOf(headPos.getZ(), centerZ, scale);
         int pixelRadius = blockRadius / scale;
-        IntArrayList updates = new IntArrayList();
+        int most = Math.min(4 * pixelRadius * pixelRadius, PixelAnchors.PIXELS);
+        IntArrayList updates = new IntArrayList(most);
+        anchorsOut.ensureCapacity(most);
         int[] colorCounts = new int[MAP_COLOR_COUNT];
         int[] seenColors = new int[scale * scale];
 
@@ -63,13 +74,14 @@ public final class CaveMapDrawing {
                     continue;
                 }
                 int distance = Mth.square(pixelX - relativeX) + Mth.square(pixelZ - relativeZ);
-                int realX = (centerX / scale + pixelX - MAP_SIZE / 2) * scale;
-                int realZ = (centerZ / scale + pixelZ - MAP_SIZE / 2) * scale;
+                int realX = areaMin(pixelX, centerX, scale);
+                int realZ = areaMin(pixelZ, centerZ, scale);
 
                 double averageHeight = 0.0;
                 double averageFluidDepth = 0.0;
                 int pixelCount = 0;
                 int brightCount = 0;
+                int staticCount = 0;
                 int seen = 0;
                 for (int innerX = 0; innerX < scale; innerX++) {
                     for (int innerZ = 0; innerZ < scale; innerZ++) {
@@ -82,6 +94,9 @@ public final class CaveMapDrawing {
                         pixelCount++;
                         if (matrix.reachesSky(x, z)) {
                             brightCount++;
+                        }
+                        if (matrix.showsStatic(x, z)) {
+                            staticCount++;
                         }
                         averageFluidDepth += matrix.fluidDepth(x, z);
                         averageHeight += matrix.floorY(x, z);
@@ -135,7 +150,7 @@ public final class CaveMapDrawing {
 
                 byte packed;
                 int anchor = (int) Math.round(averageHeight) + 1;
-                if (!drawsOpenSky && brightCount * 2 >= pixelCount) {
+                if (staticCount * 2 >= pixelCount) {
                     // Vanilla's static is flat, so it always shades normal. An open floor is
                     // never remembered: a covered one under it wins once the survey reaches it.
                     packed = noiseColor(realX, realZ).getPackedId(MapColor.Brightness.NORMAL);

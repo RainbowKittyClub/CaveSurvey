@@ -3,6 +3,7 @@ package ir.mehradn.cavesurvey.item;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import eu.pb4.polymer.core.api.item.PolymerItem;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
@@ -33,22 +34,24 @@ import net.minecraft.world.level.saveddata.maps.MapBanner;
 import net.minecraft.world.level.saveddata.maps.MapId;
 import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
 
+import ir.mehradn.cavesurvey.util.CaveMapDrawing;
+
 /**
  * A filled cave map: each use surveys the cave around the player into the map, and a map held in
- * either hand surveys again about once a second. In a dimension its kind does not survey, it
- * behaves as a vanilla map does in the Nether.
+ * either hand surveys again about once a second while its holder moves. In a dimension its kind
+ * does not survey, it behaves as a vanilla map does in the Nether.
  */
 public class CaveMapItem extends MapItem implements PolymerItem {
     private static final int BANNER_BLOCK_RADIUS = 64;
-    // Ticks a held cave map waits between surveys of its own.
-    private static final int HELD_SURVEY_TICKS = 20;
 
     private final CaveMapKind kind;
+    private final Supplier<Item> empty;
 
-    /** Creates a filled map of {@code kind}. */
-    public CaveMapItem(CaveMapKind kind, Item.Properties properties) {
+    /** Creates a filled map of {@code kind}, which an {@code empty} map of its kind clones. */
+    public CaveMapItem(CaveMapKind kind, Supplier<Item> empty, Item.Properties properties) {
         super(properties);
         this.kind = kind;
+        this.empty = empty;
     }
 
     /** Creates a filled map of {@code item} at scale 0 centred on the given block column. */
@@ -63,24 +66,25 @@ public class CaveMapItem extends MapItem implements PolymerItem {
         return this.kind;
     }
 
-    /** Drops banner markers whose banner no longer stands, near the viewer. */
-    public static void updateBanners(Level level, Entity viewer, MapItemSavedData data) {
-        if (level.dimension() != data.dimension || !(viewer instanceof Player player)) {
-            return;
-        }
+    /** Returns the empty map of this kind, which clones this one. */
+    public Item empty() {
+        return this.empty.get();
+    }
 
-        BlockPos headPos = player.blockPosition().above();
+    /** Returns whether this map surveys the dimension its data was made in. */
+    public boolean surveys(MapItemSavedData data) {
+        return this.kind.surveysIn(data.dimension);
+    }
+
+    // Drops banner markers whose banner no longer stands, near the viewer.
+    private static void dropGoneBanners(Level level, Player viewer, MapItemSavedData data) {
+        BlockPos headPos = CaveSurveys.headPos(viewer);
         int scale = 1 << data.scale;
         int centerX = data.centerX;
         int centerZ = data.centerZ;
-        int relativeX = (headPos.getX() - centerX) / scale + IMAGE_WIDTH / 2;
-        int relativeZ = (headPos.getZ() - centerZ) / scale + IMAGE_WIDTH / 2;
+        int relativeX = CaveMapDrawing.pixelOf(headPos.getX(), centerX, scale);
+        int relativeZ = CaveMapDrawing.pixelOf(headPos.getZ(), centerZ, scale);
         int pixelRadius = BANNER_BLOCK_RADIUS / scale;
-
-        if (IMAGE_WIDTH + pixelRadius + 4 < relativeX || relativeX < -pixelRadius - 4
-                || IMAGE_WIDTH + pixelRadius + 4 < relativeZ || relativeZ < -pixelRadius - 4) {
-            return;
-        }
         // The square of pixels near the viewer, clipped to the map, as blocks.
         int minPixelX = Math.max(relativeX - pixelRadius, 0);
         int maxPixelX = Math.min(relativeX + pixelRadius - 1, IMAGE_WIDTH - 1);
@@ -89,10 +93,10 @@ public class CaveMapItem extends MapItem implements PolymerItem {
         if (minPixelX > maxPixelX || minPixelZ > maxPixelZ) {
             return;
         }
-        int minX = (centerX / scale + minPixelX - IMAGE_WIDTH / 2) * scale;
-        int maxX = (centerX / scale + maxPixelX - IMAGE_WIDTH / 2) * scale + scale - 1;
-        int minZ = (centerZ / scale + minPixelZ - IMAGE_WIDTH / 2) * scale;
-        int maxZ = (centerZ / scale + maxPixelZ - IMAGE_WIDTH / 2) * scale + scale - 1;
+        int minX = CaveMapDrawing.areaMin(minPixelX, centerX, scale);
+        int maxX = CaveMapDrawing.areaMin(maxPixelX, centerX, scale) + scale - 1;
+        int minZ = CaveMapDrawing.areaMin(minPixelZ, centerZ, scale);
+        int maxZ = CaveMapDrawing.areaMin(maxPixelZ, centerZ, scale) + scale - 1;
 
         // checkBanners walks every marker on each call, so call it only for markers in the square.
         // Collected first, since checkBanners removes from the collection being walked.
@@ -120,9 +124,9 @@ public class CaveMapItem extends MapItem implements PolymerItem {
         return CaveMapItems.clientModel(itemStack, context);
     }
 
+    // Vanilla's update draws the terrain; a cave map draws in inventoryTick instead.
     @Override
     public void update(Level level, Entity player, MapItemSavedData data) {
-        updateBanners(level, player, data);
     }
 
     @Override
@@ -134,16 +138,14 @@ public class CaveMapItem extends MapItem implements PolymerItem {
             return;
         }
         MapItemSavedData data = MapItem.getSavedData(itemStack, level);
-        if (data == null || data.locked) {
+        if (data == null || data.locked || level.dimension() != data.dimension) {
             return;
         }
-        if (!this.kind.surveysIn(data.dimension)) {
+        dropGoneBanners(level, player, data);
+        if (surveys(data)) {
+            CaveSurveys.requestHeld(level, player, itemStack, data);
+        } else {
             CaveMapStatic.update(level, player, data);
-            return;
-        }
-        // Counted per holder of each map, which vanilla's own striped redraw no longer uses here.
-        if (data.getHoldingPlayer(player).step++ % HELD_SURVEY_TICKS == 0) {
-            CaveSurveys.request(level, player, itemStack);
         }
     }
 
@@ -181,7 +183,7 @@ public class CaveMapItem extends MapItem implements PolymerItem {
         }
 
         MapItemSavedData data = MapItem.getSavedData(itemStack, level);
-        if (data != null && !this.kind.surveysIn(data.dimension)) {
+        if (data != null && !surveys(data)) {
             // A vanilla filled map does nothing when used.
             return InteractionResult.PASS;
         }

@@ -16,6 +16,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.MapItem;
 
+import ir.mehradn.cavesurvey.item.CaveMapItem;
 import ir.mehradn.cavesurvey.item.CaveMapItems;
 import ir.mehradn.cavesurvey.item.CaveMapUpgrade;
 
@@ -48,7 +49,8 @@ public abstract class CartographyTableMenuMixin extends AbstractContainerMenu {
             ItemStack additional, ItemStack result, Operation<Void> original) {
         boolean improving = additional.is(CaveMapUpgrade.IMPROVING.material());
         // Only an empty map of the cave map's own kind clones it; the other kind gives nothing.
-        boolean cloning = CaveMapItems.isFilled(map) && additional.is(CaveMapItems.emptyFor(map));
+        boolean cloning = map.getItem() instanceof CaveMapItem caveMap
+                && additional.is(caveMap.empty());
         if (!CaveMapItems.isFilled(map) || !(improving || cloning)) {
             original.call(menu, map, additional, result);
             return;
@@ -76,8 +78,7 @@ public abstract class CartographyTableMenuMixin extends AbstractContainerMenu {
             target = "Lnet/minecraft/world/item/ItemStack;is(Ljava/lang/Object;)Z"))
     private boolean cavesurvey$routeCaveMapExtras(ItemStack stack, Object item,
             Operation<Boolean> original) {
-        if (item == Items.PAPER && (stack.is(CaveMapUpgrade.IMPROVING.material())
-                || CaveMapItems.isEmpty(stack))) {
+        if (item == Items.PAPER && CaveMapItems.isCartographyExtra(stack)) {
             return true;
         }
         return original.call(stack, item);

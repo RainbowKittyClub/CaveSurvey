@@ -34,11 +34,6 @@ public class EmptyCaveMapItem extends Item implements PolymerItem {
         this.filled = filled;
     }
 
-    /** Returns where this map's filled maps survey. */
-    public CaveMapKind kind() {
-        return this.kind;
-    }
-
     @Override
     public Item getPolymerItem(ItemStack itemStack, PacketContext context) {
         return Items.MAP;

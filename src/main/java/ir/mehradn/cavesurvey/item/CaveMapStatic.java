@@ -4,6 +4,7 @@ import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.MapItem;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.material.MapColor;
 import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
@@ -16,7 +17,7 @@ import ir.mehradn.cavesurvey.util.CaveMapDrawing;
  * survey, in that dimension or any other.
  */
 public final class CaveMapStatic {
-    private static final int MAP_SIZE = 128;
+    private static final int MAP_SIZE = MapItem.IMAGE_WIDTH;
 
     private CaveMapStatic() {
     }

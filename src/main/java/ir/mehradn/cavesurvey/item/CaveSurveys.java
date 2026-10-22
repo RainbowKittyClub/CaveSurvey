@@ -1,7 +1,9 @@
 package ir.mehradn.cavesurvey.item;
 
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -19,6 +21,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.MapItem;
 import net.minecraft.world.level.saveddata.maps.MapId;
 import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
 
@@ -36,8 +39,15 @@ public final class CaveSurveys {
     // Logs each survey's cost in the dev environment, or with the JVM property set.
     private static final boolean LOG_TIMING = FabricLoader.getInstance().isDevelopmentEnvironment()
             || Boolean.getBoolean("cavesurvey.debugScanTiming");
+    // Ticks between a held map's surveys while its holder moves, and while they stand still.
+    private static final int MOVING_SURVEY_TICKS = 20;
+    private static final int STILL_SURVEY_TICKS = 100;
     // Maps with a survey between its snapshot and its write; one at a time per map.
     private static final Set<MapId> IN_FLIGHT = ConcurrentHashMap.newKeySet();
+    // Each holder's last survey. Vanilla drops a map's holder once the map leaves their
+    // inventory, and the weak key goes with it. Server thread only.
+    private static final Map<MapItemSavedData.HoldingPlayer, LastSurvey> LAST_SURVEYS =
+            new WeakHashMap<>();
     private static volatile ExecutorService worker;
 
     private CaveSurveys() {
@@ -50,6 +60,29 @@ public final class CaveSurveys {
     }
 
     /**
+     * Surveys the cave map {@code stack} that {@code player} holds, when due: a second after their
+     * last survey of it once their head has moved to another block, else five seconds after. A
+     * turn that another holder's survey of the same map blocks comes on the next tick.
+     */
+    public static void requestHeld(ServerLevel level, Player player, ItemStack stack,
+            MapItemSavedData data) {
+        LastSurvey last = LAST_SURVEYS.get(data.getHoldingPlayer(player));
+        if (last != null) {
+            boolean moved = last.head() != headPos(player).asLong();
+            int since = level.getServer().getTickCount() - last.tick();
+            if (since < (moved ? MOVING_SURVEY_TICKS : STILL_SURVEY_TICKS)) {
+                return;
+            }
+        }
+        request(level, player, stack);
+    }
+
+    /** Returns the block a survey starts from, and its holder is placed by: the player's head. */
+    public static BlockPos headPos(Player player) {
+        return player.blockPosition().above();
+    }
+
+    /**
      * Surveys the cave around the player's head into the cave map {@code stack}, off the server
      * thread. Returns at once; the map fills a moment later. Does nothing while a survey of the
      * same map is still running, or for a locked or missing map.
@@ -57,14 +90,13 @@ public final class CaveSurveys {
     public static void request(ServerLevel level, Player player, ItemStack stack) {
         ExecutorService executor = worker;
         MapId id = stack.get(DataComponents.MAP_ID);
-        MapItemSavedData data = id == null ? null : level.getMapData(id);
+        MapItemSavedData data = MapItem.getSavedData(id, level);
         if (executor == null || data == null || data.locked
                 || level.dimension() != data.dimension
-                || !(stack.getItem() instanceof CaveMapItem map)
-                || !map.kind().surveysIn(data.dimension)) {
+                || !(stack.getItem() instanceof CaveMapItem map) || !map.surveys(data)) {
             return;
         }
-        BlockPos headPos = player.blockPosition().above();
+        BlockPos headPos = headPos(player);
         int sight = CaveMapSight.get(stack);
         int blockRadius = CaveMapSight.blockRadius(sight);
         int centerX = data.centerX;
@@ -80,35 +112,43 @@ public final class CaveSurveys {
             return;
         }
 
-        long snapshotStart = System.nanoTime();
-        MinecraftServer server = level.getServer();
-        CaveMappingAlgorithm.Snapshot snapshot = CaveMappingAlgorithm.Snapshot.take(level,
-                headPos.getX(), headPos.getZ(), blockRadius);
-        PixelAnchors anchors = new PixelAnchors(CaveMapAnchors.of(server, id).copy(), centerX,
-                centerZ, scaleShift);
-        int feetY = player.getBlockY();
-        boolean drawsOpenSky = map.kind().drawsOpenSky();
-        long snapshotNanos = System.nanoTime() - snapshotStart;
         try {
+            long snapshotStart = System.nanoTime();
+            MinecraftServer server = level.getServer();
+            CaveMappingAlgorithm.Snapshot snapshot = CaveMappingAlgorithm.Snapshot.take(level,
+                    headPos.getX(), headPos.getZ(), blockRadius);
+            PixelAnchors anchors = new PixelAnchors(CaveMapAnchors.of(server, id).copy(), centerX,
+                    centerZ, scaleShift);
+            int feetY = player.getBlockY();
+            boolean coveredFirst = !map.kind().drawsOpenSky();
+            long snapshotNanos = System.nanoTime() - snapshotStart;
             executor.execute(() -> {
                 long workStart = System.nanoTime();
                 IntArrayList updates = null;
                 IntArrayList newAnchors = new IntArrayList();
                 try {
                     CaveMappingAlgorithm.PixelMatrix matrix = CaveMappingAlgorithm.run(headPos,
-                            blockRadius, feetY, anchors, snapshot, !drawsOpenSky);
+                            blockRadius, feetY, anchors, snapshot, coveredFirst);
                     updates = CaveMapDrawing.draw(matrix, headPos, blockRadius, anchors,
-                            newAnchors, drawsOpenSky);
+                            newAnchors);
                 } catch (RuntimeException e) {
                     LOGGER.error("Cave Survey scan of map {} failed", id.id(), e);
+                } finally {
+                    // Even after an Error, so the map's guard clears.
+                    long workNanos = System.nanoTime() - workStart;
+                    IntArrayList done = updates;
+                    server.execute(() -> apply(level, id, done, newAnchors, snapshotNanos,
+                            workNanos, sight));
                 }
-                long workNanos = System.nanoTime() - workStart;
-                IntArrayList done = updates;
-                server.execute(() -> apply(level, id, done, newAnchors, snapshotNanos, workNanos,
-                        sight));
             });
-        } catch (RejectedExecutionException e) {
+            LAST_SURVEYS.put(data.getHoldingPlayer(player),
+                    new LastSurvey(server.getTickCount(), headPos.asLong()));
+        } catch (RuntimeException e) {
             IN_FLIGHT.remove(id);
+            // Rejected only once the worker has stopped with the server.
+            if (!(e instanceof RejectedExecutionException)) {
+                LOGGER.error("Cave Survey scan of map {} could not start", id.id(), e);
+            }
         }
     }
 
@@ -158,5 +198,10 @@ public final class CaveSurveys {
             executor.shutdownNow();
         }
         IN_FLIGHT.clear();
+        LAST_SURVEYS.clear();
+    }
+
+    // When a holder last surveyed a map: the server tick, and their head's block position.
+    private record LastSurvey(int tick, long head) {
     }
 }

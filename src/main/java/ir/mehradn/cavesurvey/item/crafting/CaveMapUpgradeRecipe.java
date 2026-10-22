@@ -18,21 +18,17 @@ import ir.mehradn.cavesurvey.item.CaveMapUpgrade;
 
 /** A filled cave map ringed by eight of an upgrade's material, as vanilla's map extending is. */
 public final class CaveMapUpgradeRecipe extends CustomRecipe {
-    /** The amethyst ring that raises the sight level. */
-    public static final CaveMapUpgradeRecipe IMPROVING =
-            new CaveMapUpgradeRecipe(CaveMapUpgrade.IMPROVING);
-    /** The glass-pane ring that locks the map. */
-    public static final CaveMapUpgradeRecipe LOCKING =
-            new CaveMapUpgradeRecipe(CaveMapUpgrade.LOCKING);
-    /** The serializer of {@link #IMPROVING}; the recipe has no fields to read. */
+    /** The amethyst ring's serializer, which raises the sight level. */
     public static final RecipeSerializer<CaveMapUpgradeRecipe> IMPROVING_SERIALIZER =
-            serializer(IMPROVING);
-    /** The serializer of {@link #LOCKING}; the recipe has no fields to read. */
+            new CaveMapUpgradeRecipe(CaveMapUpgrade.IMPROVING).serializer;
+    /** The glass-pane ring's serializer, which locks the map. */
     public static final RecipeSerializer<CaveMapUpgradeRecipe> LOCKING_SERIALIZER =
-            serializer(LOCKING);
+            new CaveMapUpgradeRecipe(CaveMapUpgrade.LOCKING).serializer;
 
     private final CaveMapUpgrade upgrade;
     private final ShapedRecipePattern pattern;
+    // Always yields this recipe, since its JSON carries only the type.
+    private final RecipeSerializer<CaveMapUpgradeRecipe> serializer;
 
     private CaveMapUpgradeRecipe(CaveMapUpgrade upgrade) {
         this.upgrade = upgrade;
@@ -40,15 +36,13 @@ public final class CaveMapUpgradeRecipe extends CustomRecipe {
                 CaveMapItems.FILLED_NETHER_CAVE_MAP);
         this.pattern = ShapedRecipePattern.of(Map.of('#', Ingredient.of(upgrade.material()),
                 'x', maps), "###", "#x#", "###");
+        this.serializer = new RecipeSerializer<>(MapCodec.unit(this), StreamCodec.unit(this));
     }
 
     @Override
     public boolean matches(CraftingInput input, Level level) {
-        if (!this.pattern.matches(input)) {
-            return false;
-        }
-        ItemStack map = findMap(input);
-        return !map.isEmpty() && this.upgrade.canApply(map, level);
+        // The pattern's centre is a filled cave map, so findMap finds one once it matches.
+        return this.pattern.matches(input) && this.upgrade.canApply(findMap(input), level);
     }
 
     @Override
@@ -59,12 +53,7 @@ public final class CaveMapUpgradeRecipe extends CustomRecipe {
 
     @Override
     public RecipeSerializer<CaveMapUpgradeRecipe> getSerializer() {
-        return this.upgrade == CaveMapUpgrade.IMPROVING ? IMPROVING_SERIALIZER : LOCKING_SERIALIZER;
-    }
-
-    // A serializer that always yields the given recipe, since its JSON carries only the type.
-    private static RecipeSerializer<CaveMapUpgradeRecipe> serializer(CaveMapUpgradeRecipe recipe) {
-        return new RecipeSerializer<>(MapCodec.unit(recipe), StreamCodec.unit(recipe));
+        return this.serializer;
     }
 
     // The filled cave map in the grid, or EMPTY.

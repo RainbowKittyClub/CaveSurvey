@@ -27,7 +27,9 @@ public final class CaveMapItems {
             new Item.Properties().rarity(Rarity.UNCOMMON));
     /** The filled cave map. Its properties mirror vanilla's filled map, plus a sight level. */
     public static final Item FILLED_CAVE_MAP = register("filled_cave_map",
-            properties -> new CaveMapItem(CaveMapKind.CAVE, properties), filledProperties());
+            properties -> new CaveMapItem(CaveMapKind.CAVE, () -> CaveMapItems.CAVE_MAP,
+                    properties),
+            filledProperties());
     /** The empty Nether cave map, the Nether's counterpart of {@link #CAVE_MAP}. */
     public static final Item NETHER_CAVE_MAP = register("nether_cave_map",
             properties -> new EmptyCaveMapItem(CaveMapKind.NETHER,
@@ -35,7 +37,9 @@ public final class CaveMapItems {
             new Item.Properties().rarity(Rarity.UNCOMMON));
     /** The filled Nether cave map. */
     public static final Item FILLED_NETHER_CAVE_MAP = register("filled_nether_cave_map",
-            properties -> new CaveMapItem(CaveMapKind.NETHER, properties), filledProperties());
+            properties -> new CaveMapItem(CaveMapKind.NETHER, () -> CaveMapItems.NETHER_CAVE_MAP,
+                    properties),
+            filledProperties());
 
     private CaveMapItems() {
     }
@@ -63,10 +67,12 @@ public final class CaveMapItems {
         return stack.getItem() instanceof EmptyCaveMapItem;
     }
 
-    /** Returns the empty map of the same kind as a filled cave map, which clones it. */
-    public static Item emptyFor(ItemStack filled) {
-        return filled.getItem() instanceof CaveMapItem map && map.kind() == CaveMapKind.NETHER
-                ? NETHER_CAVE_MAP : CAVE_MAP;
+    /**
+     * Returns whether the stack goes in the cartography table's additional slot for a cave map:
+     * an amethyst shard or an empty cave map of either kind.
+     */
+    public static boolean isCartographyExtra(ItemStack stack) {
+        return stack.is(CaveMapUpgrade.IMPROVING.material()) || isEmpty(stack);
     }
 
     // A filled map's properties mirror vanilla's filled map, plus a sight level.

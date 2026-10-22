@@ -96,7 +96,7 @@ public final class CaveSurveys {
                 IntArrayList newAnchors = new IntArrayList();
                 try {
                     CaveMappingAlgorithm.PixelMatrix matrix = CaveMappingAlgorithm.run(headPos,
-                            blockRadius, feetY, anchors, snapshot);
+                            blockRadius, feetY, anchors, snapshot, !drawsOpenSky);
                     updates = CaveMapDrawing.draw(matrix, headPos, blockRadius, anchors,
                             newAnchors, drawsOpenSky);
                 } catch (RuntimeException e) {

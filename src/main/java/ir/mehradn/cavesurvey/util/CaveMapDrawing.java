@@ -41,7 +41,7 @@ public final class CaveMapDrawing {
      *
      * @param anchors the map's anchors before this survey, which also give its centre and scale
      * @param drawsOpenSky whether to draw floors open to the sky; if not, such a pixel gets the
-     *     ceiling static ({@link #noiseColor}) and keeps its anchor
+     *     ceiling static ({@link #noiseColor}) and keeps the anchor it had
      */
     public static IntArrayList draw(CaveMappingAlgorithm.PixelMatrix matrix, BlockPos headPos,
             int blockRadius, PixelAnchors anchors, IntArrayList anchorsOut, boolean drawsOpenSky) {
@@ -134,9 +134,12 @@ public final class CaveMapDrawing {
                 }
 
                 byte packed;
+                int anchor = (int) Math.round(averageHeight) + 1;
                 if (!drawsOpenSky && brightCount * 2 >= pixelCount) {
-                    // Vanilla's static is flat, so it always shades normal.
+                    // Vanilla's static is flat, so it always shades normal. An open floor is
+                    // never remembered: a covered one under it wins once the survey reaches it.
                     packed = noiseColor(realX, realZ).getPackedId(MapColor.Brightness.NORMAL);
+                    anchor = anchors.atPixel(pixelX, pixelZ);
                 } else {
                     MapColor.Brightness brightness = switch (brightnessLevel) {
                         case 0 -> MapColor.Brightness.LOWEST;
@@ -147,7 +150,7 @@ public final class CaveMapDrawing {
                     packed = color.getPackedId(brightness);
                 }
                 updates.add(pixelX << 16 | pixelZ << 8 | packed & 0xff);
-                anchorsOut.add((int) Math.round(averageHeight) + 1);
+                anchorsOut.add(anchor);
             }
         }
         return updates;

@@ -31,8 +31,10 @@ import net.minecraft.world.level.material.MapColor;
  * and descends to its floor, then enters each neighbouring column once for every separate open run
  * beside it. Where a column has several reached pockets, the map's {@link PixelAnchors} pick one:
  * the pocket it showed before while that still exists, else the floor nearest the surveyor's feet.
- * Sections that hold only air are stepped over whole. The survey reads a {@link Snapshot} taken on
- * the server thread, so it can run on any thread; an unloaded chunk stops the flood.
+ * A map that maps only under cover passes over pockets open to the sky while the column has a
+ * covered one. Sections that hold only air are stepped over whole. The survey reads a
+ * {@link Snapshot} taken on the server thread, so it can run on any thread; an unloaded chunk stops
+ * the flood.
  */
 public final class CaveMappingAlgorithm {
     private static final int[][] NEIGHBOURS = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
@@ -61,15 +63,17 @@ public final class CaveMappingAlgorithm {
      * and picks one per column against the map's anchors.
      *
      * @param feetY the surveyor's feet height, which picks the pocket of a column with no anchor
+     * @param coveredFirst whether a column's covered pockets win over those open to the sky
      */
     public static PixelMatrix run(BlockPos startPos, int updateRadius, int feetY,
-            PixelAnchors anchors, Snapshot snapshot) {
-        return new CaveMappingAlgorithm(snapshot).flood(startPos, updateRadius, feetY, anchors);
+            PixelAnchors anchors, Snapshot snapshot, boolean coveredFirst) {
+        return new CaveMappingAlgorithm(snapshot).flood(startPos, updateRadius, feetY, anchors,
+                coveredFirst);
     }
 
     // Breadth-first over pockets; each queued entry is a height inside a pocket of its column.
     private PixelMatrix flood(BlockPos startPos, int updateRadius, int feetY,
-            PixelAnchors anchors) {
+            PixelAnchors anchors, boolean coveredFirst) {
         PixelMatrix matrix = new PixelMatrix(updateRadius, startPos.getX(), startPos.getZ());
         this.queue.enqueue(startPos.asLong());
         while (!this.queue.isEmpty()) {
@@ -92,7 +96,7 @@ public final class CaveMappingAlgorithm {
                 enterOpenRuns(x + neighbour[0], z + neighbour[1], ceiling, bottom, matrix);
             }
         }
-        matrix.choose(this, anchors, feetY);
+        matrix.choose(this, anchors, feetY, coveredFirst);
         return matrix;
     }
 
@@ -440,7 +444,10 @@ public final class CaveMappingAlgorithm {
 
         // Picks each column's pocket: the one holding its anchor height; none while the anchor is
         // still open but unreached; else the floor nearest the anchor, or the feet with no anchor.
-        private void choose(CaveMappingAlgorithm scan, PixelAnchors anchors, int feetY) {
+        // With coveredFirst, a pocket open to the sky only when the column has no covered one.
+        private void choose(CaveMappingAlgorithm scan, PixelAnchors anchors, int feetY,
+                boolean coveredFirst) {
+            int skyCeiling = coveredFirst ? scan.topExclusive : Integer.MIN_VALUE;
             int[] floor = new int[2];
             for (int i = 0; i < this.firstPocket.length; i++) {
                 if (this.firstPocket[i] < 0) {
@@ -451,14 +458,14 @@ public final class CaveMappingAlgorithm {
                 int anchor = anchors.atColumn(x, z);
                 int chosen;
                 if (anchor == PixelAnchors.NONE) {
-                    chosen = nearest(i, feetY);
+                    chosen = nearest(i, feetY, skyCeiling);
                 } else {
                     chosen = holding(i, anchor);
-                    if (chosen < 0) {
-                        if (scan.colorless(x, anchor, z)) {
-                            continue;
-                        }
-                        chosen = nearest(i, anchor);
+                    if (chosen < 0 && scan.colorless(x, anchor, z)) {
+                        continue;
+                    }
+                    if (chosen < 0 || this.pocketCeilings.getInt(chosen) == skyCeiling) {
+                        chosen = nearest(i, anchor, skyCeiling);
                     }
                 }
                 int floorY = this.pocketFloors.getInt(chosen);
@@ -485,11 +492,15 @@ public final class CaveMappingAlgorithm {
             return -1;
         }
 
-        // The reached pocket of cell i whose standing height is nearest height; the lower on a tie.
-        private int nearest(int i, int height) {
+        // The reached pocket of cell i whose standing height is nearest height, the lower on a tie;
+        // one whose ceiling is skyCeiling only when no other pocket was reached.
+        private int nearest(int i, int height, int skyCeiling) {
             int best = -1;
             int bestDistance = Integer.MAX_VALUE;
             for (int p = this.firstPocket[i]; p >= 0; p = this.nextPocket.getInt(p)) {
+                if (this.pocketCeilings.getInt(p) == skyCeiling) {
+                    continue;
+                }
                 int floor = this.pocketFloors.getInt(p);
                 int distance = Math.abs(floor + 1 - height);
                 if (distance < bestDistance
@@ -497,6 +508,9 @@ public final class CaveMappingAlgorithm {
                     best = p;
                     bestDistance = distance;
                 }
+            }
+            if (best < 0 && skyCeiling != Integer.MIN_VALUE) {
+                return nearest(i, height, Integer.MIN_VALUE);
             }
             return best;
         }

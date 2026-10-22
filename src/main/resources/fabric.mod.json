@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "${project.mod_id}",
+  "version": "${project.version}",
+
+  "name": "${project.mod_name}",
+  "description": "${project.mod_description}",
+  "authors": ${mod_authors},
+  "contact": {
+    "homepage": "${project.mod_website}",
+    "sources": "${project.mod_website}",
+    "issues": "${project.mod_issues}"
+  },
+
+  "license": "${project.mod_license}",
+  "icon": "assets/cave-survey/icon.png",
+
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "${project.entrypoint}"
+    ]
+  },
+  "mixins": [
+    "cave-survey.mixins.json"
+  ],
+
+  "depends": {
+    "fabricloader": ">=${project.fabric_loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${project.minecraft_version}",
+    "java": ">=${project.java_version}",
+    "polymer-core": "*",
+    "polymer-resource-pack": "*"
+  }
+}

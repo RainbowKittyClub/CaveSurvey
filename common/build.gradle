@@ -1,3 +1,0 @@
-base {
-    archivesName = rootProject.common_name
-}

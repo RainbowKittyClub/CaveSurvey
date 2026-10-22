@@ -1,16 +1,1 @@
-pluginManagement {
-    repositories {
-        maven {
-            name = 'Fabric'
-            url = 'https://maven.fabricmc.net/'
-        }
-        mavenCentral()
-        gradlePluginPortal()
-    }
-}
-
-include "common"
-include "client"
-include "server"
-
-rootProject.name = "cave-survey"
+gradle/settings.gradle

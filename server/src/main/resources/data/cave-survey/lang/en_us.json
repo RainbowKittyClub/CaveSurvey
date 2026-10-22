@@ -1,9 +1,0 @@
-{
-  "item.cave-survey.cave_map": "Empty Cave Map",
-  "item.cave-survey.filled_cave_map": "Cave Map",
-  "filled_cave_map.low_sight": "Low sight",
-  "filled_cave_map.medium_sight": "Medium sight",
-  "filled_cave_map.high_sight": "High sight",
-  "filled_cave_map.sight_range": "Sight range: %s",
-  "filled_cave_map.sight_level": "(Level %s/%s)"
-}

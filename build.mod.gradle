@@ -1,0 +1,9 @@
+// Server-side translations for vanilla clients: data/cave-survey/lang/ is read by this library.
+dependencies {
+    implementation include("xyz.nucleoid:server-translations-api:${project.server_translations_version}")
+}
+
+// LGPL-3.0: ship both licence texts in the jar, since the template only picks up a LICENSE file.
+tasks.named('jar') {
+    from('COPYING', 'COPYING.LESSER')
+}

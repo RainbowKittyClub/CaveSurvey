@@ -1,0 +1,11 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "ir.mehradn.cavesurvey.mixin",
+  "compatibilityLevel": "JAVA_${project.java_version}",
+  "mixins": [
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

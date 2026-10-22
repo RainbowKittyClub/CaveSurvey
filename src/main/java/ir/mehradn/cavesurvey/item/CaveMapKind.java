@@ -10,15 +10,18 @@ import net.minecraft.world.level.Level;
  * Nether: it still fills with the ceiling static, and never surveys.
  */
 public enum CaveMapKind {
-    /** The cave map: everywhere but the Nether. Made with an echo shard. */
-    CAVE(SoundEvents.SCULK_CLICKING) {
+    /**
+     * The cave map: everywhere but the Nether, and only under cover; a floor open to the sky shows
+     * the ceiling static. Made with an echo shard.
+     */
+    CAVE(SoundEvents.SCULK_CLICKING, false) {
         @Override
         public boolean surveysIn(ResourceKey<Level> dimension) {
             return !Level.NETHER.equals(dimension);
         }
     },
-    /** The Nether cave map: the Nether only. Made with crying obsidian. */
-    NETHER(SoundEvents.RESPAWN_ANCHOR_CHARGE) {
+    /** The Nether cave map: the Nether only, roof included. Made with crying obsidian. */
+    NETHER(SoundEvents.RESPAWN_ANCHOR_CHARGE, true) {
         @Override
         public boolean surveysIn(ResourceKey<Level> dimension) {
             return Level.NETHER.equals(dimension);
@@ -26,14 +29,21 @@ public enum CaveMapKind {
     };
 
     private final SoundEvent makeSound;
+    private final boolean drawsOpenSky;
 
-    CaveMapKind(SoundEvent makeSound) {
+    CaveMapKind(SoundEvent makeSound, boolean drawsOpenSky) {
         this.makeSound = makeSound;
+        this.drawsOpenSky = drawsOpenSky;
     }
 
     /** Returns the sound an empty map of this kind makes when it becomes a filled one. */
     public SoundEvent makeSound() {
         return this.makeSound;
+    }
+
+    /** Returns whether this kind draws floors open to the sky, rather than the ceiling static. */
+    public boolean drawsOpenSky() {
+        return this.drawsOpenSky;
     }
 
     /** Returns whether a map of this kind, made in {@code dimension}, surveys there. */

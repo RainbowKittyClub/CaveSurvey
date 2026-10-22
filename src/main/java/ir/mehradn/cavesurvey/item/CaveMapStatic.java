@@ -1,14 +1,14 @@
 package ir.mehradn.cavesurvey.item;
 
-import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.material.MapColor;
 import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
+
+import ir.mehradn.cavesurvey.util.CaveMapDrawing;
 
 /**
  * The static a vanilla map draws under a ceiling, as in the Nether: dirt or stone per pixel from
@@ -61,7 +61,7 @@ public final class CaveMapStatic {
                 if (chunk == null || chunk.isEmpty()) {
                     continue;
                 }
-                MapColor color = staticColor(level, areaMinX, areaMinZ);
+                MapColor color = CaveMapDrawing.noiseColor(areaMinX, areaMinZ);
                 double averageAreaHeight = 100.0;
                 double diff = (averageAreaHeight - previousAverageAreaHeight) * 4.0 / (scale + 4)
                         + ((imgX + imgY & 1) - 0.5) * 0.4;
@@ -81,13 +81,5 @@ public final class CaveMapStatic {
                 }
             }
         }
-    }
-
-    // Vanilla's ceiling noise: a hash of the area's corner picks dirt or stone.
-    private static MapColor staticColor(ServerLevel level, int areaMinX, int areaMinZ) {
-        int ceilingNoise = areaMinX + areaMinZ * 231871;
-        ceilingNoise = ceilingNoise * ceilingNoise * 31287121 + ceilingNoise * 11;
-        return ((ceilingNoise >> 20 & 1) == 0 ? Blocks.DIRT : Blocks.STONE).defaultBlockState()
-                .getMapColor(level, BlockPos.ZERO);
     }
 }

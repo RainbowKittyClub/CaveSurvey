@@ -87,6 +87,7 @@ public final class CaveSurveys {
         PixelAnchors anchors = new PixelAnchors(CaveMapAnchors.of(server, id).copy(), centerX,
                 centerZ, scaleShift);
         int feetY = player.getBlockY();
+        boolean drawsOpenSky = map.kind().drawsOpenSky();
         long snapshotNanos = System.nanoTime() - snapshotStart;
         try {
             executor.execute(() -> {
@@ -97,7 +98,7 @@ public final class CaveSurveys {
                     CaveMappingAlgorithm.PixelMatrix matrix = CaveMappingAlgorithm.run(headPos,
                             blockRadius, feetY, anchors, snapshot);
                     updates = CaveMapDrawing.draw(matrix, headPos, blockRadius, anchors,
-                            newAnchors);
+                            newAnchors, drawsOpenSky);
                 } catch (RuntimeException e) {
                     LOGGER.error("Cave Survey scan of map {} failed", id.id(), e);
                 }

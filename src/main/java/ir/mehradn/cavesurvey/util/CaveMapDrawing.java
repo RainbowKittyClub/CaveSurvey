@@ -40,9 +40,11 @@ public final class CaveMapDrawing {
      * pixel's new anchor height to {@code anchorsOut}, in the same order.
      *
      * @param anchors the map's anchors before this survey, which also give its centre and scale
+     * @param drawsOpenSky whether to draw floors open to the sky; if not, such a pixel gets the
+     *     ceiling static ({@link #noiseColor}) and keeps its anchor
      */
     public static IntArrayList draw(CaveMappingAlgorithm.PixelMatrix matrix, BlockPos headPos,
-            int blockRadius, PixelAnchors anchors, IntArrayList anchorsOut) {
+            int blockRadius, PixelAnchors anchors, IntArrayList anchorsOut, boolean drawsOpenSky) {
         int scale = 1 << anchors.scaleShift();
         int centerX = anchors.centerX();
         int centerZ = anchors.centerZ();
@@ -131,17 +133,34 @@ public final class CaveMapDrawing {
                     continue;
                 }
 
-                MapColor.Brightness brightness = switch (brightnessLevel) {
-                    case 0 -> MapColor.Brightness.LOWEST;
-                    case 1 -> MapColor.Brightness.LOW;
-                    case 2 -> MapColor.Brightness.NORMAL;
-                    default -> MapColor.Brightness.HIGH;
-                };
-                updates.add(pixelX << 16 | pixelZ << 8 | color.getPackedId(brightness) & 0xff);
+                byte packed;
+                if (!drawsOpenSky && brightCount * 2 >= pixelCount) {
+                    // Vanilla's static is flat, so it always shades normal.
+                    packed = noiseColor(realX, realZ).getPackedId(MapColor.Brightness.NORMAL);
+                } else {
+                    MapColor.Brightness brightness = switch (brightnessLevel) {
+                        case 0 -> MapColor.Brightness.LOWEST;
+                        case 1 -> MapColor.Brightness.LOW;
+                        case 2 -> MapColor.Brightness.NORMAL;
+                        default -> MapColor.Brightness.HIGH;
+                    };
+                    packed = color.getPackedId(brightness);
+                }
+                updates.add(pixelX << 16 | pixelZ << 8 | packed & 0xff);
                 anchorsOut.add((int) Math.round(averageHeight) + 1);
             }
         }
         return updates;
+    }
+
+    /**
+     * Returns the colour of the static a vanilla map draws under a ceiling, for the area whose
+     * lowest corner is ({@code areaMinX}, {@code areaMinZ}): dirt or stone from a hash of it.
+     */
+    public static MapColor noiseColor(int areaMinX, int areaMinZ) {
+        int noise = areaMinX + areaMinZ * 231871;
+        noise = noise * noise * 31287121 + noise * 11;
+        return (noise >> 20 & 1) == 0 ? MapColor.DIRT : MapColor.STONE;
     }
 
     /** Returns the pixel column of a packed update. */

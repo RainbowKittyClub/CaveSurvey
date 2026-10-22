@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "#": "minecraft:paper",
+    "X": "minecraft:compass",
+    "/": "minecraft:echo_shard"
+  },
+  "pattern": [
+    "###",
+    "#X/",
+    "###"
+  ],
+  "result": {
+    "id": "cave-survey:cave_map"
+  },
+  "show_notification": true
+}

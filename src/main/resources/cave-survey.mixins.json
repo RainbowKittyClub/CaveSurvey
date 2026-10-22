@@ -4,6 +4,8 @@
   "package": "ir.mehradn.cavesurvey.mixin",
   "compatibilityLevel": "JAVA_${project.java_version}",
   "mixins": [
+    "cartography.CartographyTableMenuAdditionalSlotMixin",
+    "cartography.CartographyTableMenuMixin"
   ],
   "injectors": {
     "defaultRequire": 1

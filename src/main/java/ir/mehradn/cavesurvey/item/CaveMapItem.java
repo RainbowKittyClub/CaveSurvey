@@ -6,6 +6,7 @@ import java.util.function.Consumer;
 
 import eu.pb4.polymer.core.api.item.PolymerItem;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
+import org.jspecify.annotations.Nullable;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
@@ -18,6 +19,7 @@ import net.minecraft.stats.Stats;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -31,9 +33,14 @@ import net.minecraft.world.level.saveddata.maps.MapBanner;
 import net.minecraft.world.level.saveddata.maps.MapId;
 import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
 
-/** A filled cave map: each use surveys the cave around the player into the map. */
+/**
+ * A filled cave map: each use surveys the cave around the player into the map, and a map held in
+ * either hand surveys again about once a second.
+ */
 public class CaveMapItem extends MapItem implements PolymerItem {
     private static final int BANNER_BLOCK_RADIUS = 64;
+    // Ticks a held cave map waits between surveys of its own.
+    private static final int HELD_SURVEY_TICKS = 20;
 
     /** Creates the item with the given properties. */
     public CaveMapItem(Item.Properties properties) {
@@ -107,6 +114,22 @@ public class CaveMapItem extends MapItem implements PolymerItem {
     @Override
     public void update(Level level, Entity player, MapItemSavedData data) {
         updateBanners(level, player, data);
+    }
+
+    @Override
+    public void inventoryTick(ItemStack itemStack, ServerLevel level, Entity owner,
+            @Nullable EquipmentSlot slot) {
+        super.inventoryTick(itemStack, level, owner, slot);
+        if (slot == null || slot.getType() != EquipmentSlot.Type.HAND
+                || !(owner instanceof Player player)) {
+            return;
+        }
+        MapItemSavedData data = MapItem.getSavedData(itemStack, level);
+        // Counted per holder of each map, which vanilla's own striped redraw no longer uses here.
+        if (data != null && !data.locked
+                && data.getHoldingPlayer(player).step++ % HELD_SURVEY_TICKS == 0) {
+            CaveSurveys.request(level, player, itemStack);
+        }
     }
 
     @Override

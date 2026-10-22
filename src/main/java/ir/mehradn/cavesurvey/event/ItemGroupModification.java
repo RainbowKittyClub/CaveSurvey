@@ -15,6 +15,7 @@ public final class ItemGroupModification {
     /** Registers the creative tab hook. */
     public static void register() {
         CreativeModeTabEvents.modifyOutputEvent(CreativeModeTabs.TOOLS_AND_UTILITIES)
-                .register(output -> output.insertAfter(Items.MAP, CaveMapItems.CAVE_MAP));
+                .register(output -> output.insertAfter(Items.MAP, CaveMapItems.CAVE_MAP,
+                        CaveMapItems.NETHER_CAVE_MAP));
     }
 }

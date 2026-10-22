@@ -36,8 +36,10 @@ public final class CaveMapUpgradeRecipe extends CustomRecipe {
 
     private CaveMapUpgradeRecipe(CaveMapUpgrade upgrade) {
         this.upgrade = upgrade;
+        Ingredient maps = Ingredient.of(CaveMapItems.FILLED_CAVE_MAP,
+                CaveMapItems.FILLED_NETHER_CAVE_MAP);
         this.pattern = ShapedRecipePattern.of(Map.of('#', Ingredient.of(upgrade.material()),
-                'x', Ingredient.of(CaveMapItems.FILLED_CAVE_MAP)), "###", "#x#", "###");
+                'x', maps), "###", "#x#", "###");
     }
 
     @Override
@@ -69,7 +71,7 @@ public final class CaveMapUpgradeRecipe extends CustomRecipe {
     private static ItemStack findMap(CraftingInput input) {
         for (int i = 0; i < input.size(); i++) {
             ItemStack stack = input.getItem(i);
-            if (stack.is(CaveMapItems.FILLED_CAVE_MAP)) {
+            if (CaveMapItems.isFilled(stack)) {
                 return stack;
             }
         }

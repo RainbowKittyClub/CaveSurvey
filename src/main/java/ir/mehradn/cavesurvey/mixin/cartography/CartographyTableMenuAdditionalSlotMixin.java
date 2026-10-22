@@ -19,6 +19,6 @@ public abstract class CartographyTableMenuAdditionalSlotMixin {
     @ModifyReturnValue(method = "mayPlace", at = @At("RETURN"))
     private boolean cavesurvey$acceptCaveMapExtras(boolean original, ItemStack itemStack) {
         return original || itemStack.is(CaveMapUpgrade.IMPROVING.material())
-                || itemStack.is(CaveMapItems.CAVE_MAP);
+                || CaveMapItems.isEmpty(itemStack);
     }
 }

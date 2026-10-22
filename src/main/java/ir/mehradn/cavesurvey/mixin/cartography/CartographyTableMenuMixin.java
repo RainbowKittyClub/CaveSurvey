@@ -47,8 +47,9 @@ public abstract class CartographyTableMenuMixin extends AbstractContainerMenu {
     private void cavesurvey$setupCaveMapResult(CartographyTableMenu menu, ItemStack map,
             ItemStack additional, ItemStack result, Operation<Void> original) {
         boolean improving = additional.is(CaveMapUpgrade.IMPROVING.material());
-        boolean cloning = additional.is(CaveMapItems.CAVE_MAP);
-        if (!map.is(CaveMapItems.FILLED_CAVE_MAP) || !(improving || cloning)) {
+        // Only an empty map of the cave map's own kind clones it; the other kind gives nothing.
+        boolean cloning = CaveMapItems.isFilled(map) && additional.is(CaveMapItems.emptyFor(map));
+        if (!CaveMapItems.isFilled(map) || !(improving || cloning)) {
             original.call(menu, map, additional, result);
             return;
         }
@@ -76,7 +77,7 @@ public abstract class CartographyTableMenuMixin extends AbstractContainerMenu {
     private boolean cavesurvey$routeCaveMapExtras(ItemStack stack, Object item,
             Operation<Boolean> original) {
         if (item == Items.PAPER && (stack.is(CaveMapUpgrade.IMPROVING.material())
-                || stack.is(CaveMapItems.CAVE_MAP))) {
+                || CaveMapItems.isEmpty(stack))) {
             return true;
         }
         return original.call(stack, item);

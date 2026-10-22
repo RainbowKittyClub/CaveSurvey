@@ -1,0 +1,6 @@
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "cave-survey:item/filled_nether_cave_map"
+  }
+}

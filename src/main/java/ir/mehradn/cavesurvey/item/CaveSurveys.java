@@ -59,7 +59,9 @@ public final class CaveSurveys {
         MapId id = stack.get(DataComponents.MAP_ID);
         MapItemSavedData data = id == null ? null : level.getMapData(id);
         if (executor == null || data == null || data.locked
-                || level.dimension() != data.dimension) {
+                || level.dimension() != data.dimension
+                || !(stack.getItem() instanceof CaveMapItem map)
+                || !map.kind().surveysIn(data.dimension)) {
             return;
         }
         BlockPos headPos = player.blockPosition().above();

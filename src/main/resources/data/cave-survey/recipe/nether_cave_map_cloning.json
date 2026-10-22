@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_transmute",
+  "add_material_count_to_result": true,
+  "group": "map_cloning",
+  "input": "cave-survey:filled_nether_cave_map",
+  "material": "cave-survey:nether_cave_map",
+  "material_count": {
+    "max": 8,
+    "min": 1
+  },
+  "result": {}
+}

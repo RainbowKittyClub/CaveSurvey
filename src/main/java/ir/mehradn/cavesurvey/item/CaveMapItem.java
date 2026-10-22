@@ -35,23 +35,32 @@ import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
 
 /**
  * A filled cave map: each use surveys the cave around the player into the map, and a map held in
- * either hand surveys again about once a second.
+ * either hand surveys again about once a second. In a dimension its kind does not survey, it
+ * behaves as a vanilla map does in the Nether.
  */
 public class CaveMapItem extends MapItem implements PolymerItem {
     private static final int BANNER_BLOCK_RADIUS = 64;
     // Ticks a held cave map waits between surveys of its own.
     private static final int HELD_SURVEY_TICKS = 20;
 
-    /** Creates the item with the given properties. */
-    public CaveMapItem(Item.Properties properties) {
+    private final CaveMapKind kind;
+
+    /** Creates a filled map of {@code kind}. */
+    public CaveMapItem(CaveMapKind kind, Item.Properties properties) {
         super(properties);
+        this.kind = kind;
     }
 
-    /** Creates a filled cave map at scale 0 centred on the given block column. */
-    public static ItemStack create(ServerLevel level, int x, int z) {
-        ItemStack stack = new ItemStack(CaveMapItems.FILLED_CAVE_MAP);
+    /** Creates a filled map of {@code item} at scale 0 centred on the given block column. */
+    public static ItemStack create(ServerLevel level, int x, int z, Item item) {
+        ItemStack stack = new ItemStack(item);
         MapItem.applyNewSavedData(level, stack, x, z, (byte) 0, true, false);
         return stack;
+    }
+
+    /** Returns where this map surveys. */
+    public CaveMapKind kind() {
+        return this.kind;
     }
 
     /** Drops banner markers whose banner no longer stands, near the viewer. */
@@ -125,9 +134,15 @@ public class CaveMapItem extends MapItem implements PolymerItem {
             return;
         }
         MapItemSavedData data = MapItem.getSavedData(itemStack, level);
+        if (data == null || data.locked) {
+            return;
+        }
+        if (!this.kind.surveysIn(data.dimension)) {
+            CaveMapStatic.update(level, player, data);
+            return;
+        }
         // Counted per holder of each map, which vanilla's own striped redraw no longer uses here.
-        if (data != null && !data.locked
-                && data.getHoldingPlayer(player).step++ % HELD_SURVEY_TICKS == 0) {
+        if (data.getHoldingPlayer(player).step++ % HELD_SURVEY_TICKS == 0) {
             CaveSurveys.request(level, player, itemStack);
         }
     }
@@ -165,8 +180,12 @@ public class CaveMapItem extends MapItem implements PolymerItem {
             return InteractionResult.SUCCESS;
         }
 
-        player.awardStat(Stats.ITEM_USED.get(this));
         MapItemSavedData data = MapItem.getSavedData(itemStack, level);
+        if (data != null && !this.kind.surveysIn(data.dimension)) {
+            // A vanilla filled map does nothing when used.
+            return InteractionResult.PASS;
+        }
+        player.awardStat(Stats.ITEM_USED.get(this));
         if (data == null) {
             return InteractionResult.FAIL;
         }

@@ -1,6 +1,8 @@
 {
   "item.cave-survey.cave_map": "Empty Cave Map",
   "item.cave-survey.filled_cave_map": "Cave Map",
+  "item.cave-survey.nether_cave_map": "Empty Nether Cave Map",
+  "item.cave-survey.filled_nether_cave_map": "Nether Cave Map",
   "itemGroup.cave-survey.cave_survey": "Cave Survey",
   "filled_cave_map.low_sight": "Low sight",
   "filled_cave_map.medium_sight": "Medium sight",

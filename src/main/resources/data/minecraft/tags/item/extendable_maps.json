@@ -1,5 +1,6 @@
 {
   "values": [
-    "cave-survey:filled_cave_map"
+    "cave-survey:filled_cave_map",
+    "cave-survey:filled_nether_cave_map"
   ]
 }

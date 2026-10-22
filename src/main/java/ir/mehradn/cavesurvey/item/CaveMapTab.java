@@ -21,7 +21,10 @@ public final class CaveMapTab {
         CreativeModeTab tab = PolymerCreativeModeTabUtils.builder()
                 .title(Component.translatable("itemGroup." + CaveSurvey.MOD_ID + ".cave_survey"))
                 .icon(() -> new ItemStack(CaveMapItems.CAVE_MAP))
-                .displayItems((params, output) -> output.accept(CaveMapItems.CAVE_MAP))
+                .displayItems((params, output) -> {
+                    output.accept(CaveMapItems.CAVE_MAP);
+                    output.accept(CaveMapItems.NETHER_CAVE_MAP);
+                })
                 .build();
         PolymerCreativeModeTabUtils.registerPolymerCreativeModeTab(
                 CaveSurvey.id("cave_survey"), tab);

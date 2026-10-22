@@ -5,7 +5,8 @@
   "compatibilityLevel": "JAVA_${project.java_version}",
   "mixins": [
     "cartography.CartographyTableMenuAdditionalSlotMixin",
-    "cartography.CartographyTableMenuMixin"
+    "cartography.CartographyTableMenuMixin",
+    "map.MapItemSavedDataMixin"
   ],
   "injectors": {
     "defaultRequire": 1

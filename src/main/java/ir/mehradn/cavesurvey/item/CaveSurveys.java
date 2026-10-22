@@ -25,6 +25,7 @@ import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
 import ir.mehradn.cavesurvey.CaveSurvey;
 import ir.mehradn.cavesurvey.util.CaveMapDrawing;
 import ir.mehradn.cavesurvey.util.CaveMappingAlgorithm;
+import ir.mehradn.cavesurvey.util.PixelAnchors;
 
 /**
  * Runs cave map surveys off the server thread. The server thread copies the chunks a survey can
@@ -78,34 +79,40 @@ public final class CaveSurveys {
         }
 
         long snapshotStart = System.nanoTime();
+        MinecraftServer server = level.getServer();
         CaveMappingAlgorithm.Snapshot snapshot = CaveMappingAlgorithm.Snapshot.take(level,
                 headPos.getX(), headPos.getZ(), blockRadius);
+        PixelAnchors anchors = new PixelAnchors(CaveMapAnchors.of(server, id).copy(), centerX,
+                centerZ, scaleShift);
+        int feetY = player.getBlockY();
         long snapshotNanos = System.nanoTime() - snapshotStart;
-        MinecraftServer server = level.getServer();
         try {
             executor.execute(() -> {
                 long workStart = System.nanoTime();
                 IntArrayList updates = null;
+                IntArrayList newAnchors = new IntArrayList();
                 try {
-                    CaveMappingAlgorithm.PixelMatrix matrix =
-                            CaveMappingAlgorithm.run(headPos, blockRadius, snapshot);
-                    updates = CaveMapDrawing.draw(matrix, headPos, blockRadius, centerX, centerZ,
-                            scaleShift);
+                    CaveMappingAlgorithm.PixelMatrix matrix = CaveMappingAlgorithm.run(headPos,
+                            blockRadius, feetY, anchors, snapshot);
+                    updates = CaveMapDrawing.draw(matrix, headPos, blockRadius, anchors,
+                            newAnchors);
                 } catch (RuntimeException e) {
                     LOGGER.error("Cave Survey scan of map {} failed", id.id(), e);
                 }
                 long workNanos = System.nanoTime() - workStart;
                 IntArrayList done = updates;
-                server.execute(() -> apply(level, id, done, snapshotNanos, workNanos, sight));
+                server.execute(() -> apply(level, id, done, newAnchors, snapshotNanos, workNanos,
+                        sight));
             });
         } catch (RejectedExecutionException e) {
             IN_FLIGHT.remove(id);
         }
     }
 
-    // Writes a finished survey into its map, unless the map has gone or been locked meanwhile.
-    private static void apply(ServerLevel level, MapId id, IntArrayList updates, long snapshotNanos,
-            long workNanos, int sight) {
+    // Writes a finished survey and its anchors into the map, unless the map has gone or been
+    // locked meanwhile.
+    private static void apply(ServerLevel level, MapId id, IntArrayList updates,
+            IntArrayList newAnchors, long snapshotNanos, long workNanos, int sight) {
         long applyStart = System.nanoTime();
         IN_FLIGHT.remove(id);
         if (updates == null || worker == null) {
@@ -115,10 +122,13 @@ public final class CaveSurveys {
         if (data == null || data.locked) {
             return;
         }
+        CaveMapAnchors anchors = CaveMapAnchors.of(level.getServer(), id);
         for (int i = 0; i < updates.size(); i++) {
             int update = updates.getInt(i);
-            data.updateColor(CaveMapDrawing.pixelX(update), CaveMapDrawing.pixelZ(update),
-                    CaveMapDrawing.color(update));
+            int pixelX = CaveMapDrawing.pixelX(update);
+            int pixelZ = CaveMapDrawing.pixelZ(update);
+            data.updateColor(pixelX, pixelZ, CaveMapDrawing.color(update));
+            anchors.set(pixelX, pixelZ, newAnchors.getInt(i));
         }
         if (LOG_TIMING) {
             double serverMs = (snapshotNanos + System.nanoTime() - applyStart) / 1e6;

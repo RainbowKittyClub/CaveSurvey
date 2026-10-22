@@ -36,13 +36,16 @@ public final class CaveMapDrawing {
 
     /**
      * Returns the pixels a survey sets, each packed as {@code pixelX << 16 | pixelZ << 8 | colour};
-     * read them back with {@link #pixelX}, {@link #pixelZ} and {@link #color}.
+     * read them back with {@link #pixelX}, {@link #pixelZ} and {@link #color}. Adds each set
+     * pixel's new anchor height to {@code anchorsOut}, in the same order.
      *
-     * @param scaleShift the map's scale: each pixel covers {@code 1 << scaleShift} blocks a side
+     * @param anchors the map's anchors before this survey, which also give its centre and scale
      */
     public static IntArrayList draw(CaveMappingAlgorithm.PixelMatrix matrix, BlockPos headPos,
-            int blockRadius, int centerX, int centerZ, int scaleShift) {
-        int scale = 1 << scaleShift;
+            int blockRadius, PixelAnchors anchors, IntArrayList anchorsOut) {
+        int scale = 1 << anchors.scaleShift();
+        int centerX = anchors.centerX();
+        int centerZ = anchors.centerZ();
         int relativeX = (headPos.getX() - centerX) / scale + MAP_SIZE / 2;
         int relativeZ = (headPos.getZ() - centerZ) / scale + MAP_SIZE / 2;
         int pixelRadius = blockRadius / scale;
@@ -51,8 +54,9 @@ public final class CaveMapDrawing {
         int[] seenColors = new int[scale * scale];
 
         for (int pixelX = relativeX - pixelRadius; pixelX < relativeX + pixelRadius; pixelX++) {
-            double previousAverageHeight = 0.0;
-            for (int pixelZ = relativeZ - pixelRadius; pixelZ < relativeZ + pixelRadius; pixelZ++) {
+            int firstPixelZ = relativeZ - pixelRadius;
+            double previousAverageHeight = storedHeight(anchors, pixelX, firstPixelZ - 1);
+            for (int pixelZ = firstPixelZ; pixelZ < relativeZ + pixelRadius; pixelZ++) {
                 if (pixelX < 0 || pixelZ < 0 || pixelX >= MAP_SIZE || pixelZ >= MAP_SIZE) {
                     continue;
                 }
@@ -87,7 +91,8 @@ public final class CaveMapDrawing {
                 }
 
                 if (pixelCount == 0) {
-                    previousAverageHeight = 0;
+                    // Unreached this time: shade the next pixel against what the map last drew.
+                    previousAverageHeight = storedHeight(anchors, pixelX, pixelZ);
                     continue;
                 }
                 averageHeight /= pixelCount;
@@ -133,6 +138,7 @@ public final class CaveMapDrawing {
                     default -> MapColor.Brightness.HIGH;
                 };
                 updates.add(pixelX << 16 | pixelZ << 8 | color.getPackedId(brightness) & 0xff);
+                anchorsOut.add((int) Math.round(averageHeight) + 1);
             }
         }
         return updates;
@@ -151,6 +157,12 @@ public final class CaveMapDrawing {
     /** Returns the packed map colour of a packed update. */
     public static byte color(int update) {
         return (byte) update;
+    }
+
+    // The floor height the map last drew at a pixel, or 0 (upstream's start value) for none.
+    private static double storedHeight(PixelAnchors anchors, int pixelX, int pixelZ) {
+        int anchor = anchors.atPixel(pixelX, pixelZ);
+        return anchor == PixelAnchors.NONE ? 0.0 : anchor - 1;
     }
 
     // The most counted of the first `seen` colour ids, the earliest seen on a tie, as a

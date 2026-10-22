@@ -28,6 +28,9 @@ public class CaveSurvey implements ModInitializer {
         ItemGroupModification.register();
         LootTableModification.register();
         PolymerResourcePackUtils.addModAssets(MOD_ID);
+        // Singleplayer turns Polymer's pack on only when a mod requires it; a server keeps the
+        // pack optional with auto-host's mod_override off.
+        PolymerResourcePackUtils.markAsRequired();
     }
 
     /** Returns an identifier in this mod's namespace. */

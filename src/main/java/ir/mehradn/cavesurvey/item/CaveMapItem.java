@@ -1,5 +1,6 @@
 package ir.mehradn.cavesurvey.item;
 
+import java.util.Locale;
 import java.util.function.Consumer;
 
 import com.google.common.collect.Iterables;
@@ -7,6 +8,9 @@ import com.google.common.collect.LinkedHashMultiset;
 import com.google.common.collect.Multisets;
 import eu.pb4.polymer.core.api.item.PolymerItem;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
+import net.fabricmc.loader.api.FabricLoader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
@@ -31,6 +35,7 @@ import net.minecraft.world.level.material.MapColor;
 import net.minecraft.world.level.saveddata.maps.MapId;
 import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
 
+import ir.mehradn.cavesurvey.CaveSurvey;
 import ir.mehradn.cavesurvey.util.CaveMappingAlgorithm;
 
 /** A filled cave map: each use surveys the cave around the player into the map. */
@@ -38,6 +43,11 @@ public class CaveMapItem extends MapItem implements PolymerItem {
     /** The width and height of a map in pixels. */
     public static final int MAP_SIZE = 128;
     private static final int BANNER_BLOCK_RADIUS = 64;
+    private static final Logger LOGGER = LoggerFactory.getLogger(CaveSurvey.MOD_ID);
+    // Logs each survey's server-thread time in the dev environment, or with the JVM property set.
+    private static final boolean LOG_SCAN_TIMING =
+            FabricLoader.getInstance().isDevelopmentEnvironment()
+                    || Boolean.getBoolean("cavesurvey.debugScanTiming");
 
     /** Creates the item with the given properties. */
     public CaveMapItem(Item.Properties properties) {
@@ -70,6 +80,7 @@ public class CaveMapItem extends MapItem implements PolymerItem {
                 || MAP_SIZE + pixelRadius + 4 < relativeZ || relativeZ < -pixelRadius - 4) {
             return;
         }
+        long startNanos = System.nanoTime();
         CaveMappingAlgorithm.PixelMatrix matrix =
                 CaveMappingAlgorithm.run(headPos, blockRadius, level);
 
@@ -155,6 +166,10 @@ public class CaveMapItem extends MapItem implements PolymerItem {
                 };
                 data.updateColor(pixelX, pixelZ, color.getPackedId(brightness));
             }
+        }
+        if (LOG_SCAN_TIMING) {
+            LOGGER.info("Cave Survey scan: {} ms, sight {}", String.format(Locale.ROOT, "%.3f",
+                    (System.nanoTime() - startNanos) / 1e6), sight);
         }
     }
 

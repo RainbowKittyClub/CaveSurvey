@@ -13,8 +13,10 @@ import org.slf4j.LoggerFactory;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.stats.Stats;
 import net.minecraft.util.Mth;
@@ -228,6 +230,12 @@ public class CaveMapItem extends MapItem implements PolymerItem {
     @Override
     public Item getPolymerItem(ItemStack itemStack, PacketContext context) {
         return Items.FILLED_MAP;
+    }
+
+    @Override
+    public Identifier getPolymerItemModel(ItemStack itemStack, PacketContext context,
+            HolderLookup.Provider lookup) {
+        return CaveMapItems.clientModel(itemStack, context);
     }
 
     @Override

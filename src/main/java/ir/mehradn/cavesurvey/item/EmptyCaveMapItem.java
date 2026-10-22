@@ -3,6 +3,8 @@ package ir.mehradn.cavesurvey.item;
 import eu.pb4.polymer.core.api.item.PolymerItem;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 
+import net.minecraft.core.HolderLookup;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.stats.Stats;
@@ -27,6 +29,12 @@ public class EmptyCaveMapItem extends Item implements PolymerItem {
     @Override
     public Item getPolymerItem(ItemStack itemStack, PacketContext context) {
         return Items.MAP;
+    }
+
+    @Override
+    public Identifier getPolymerItemModel(ItemStack itemStack, PacketContext context,
+            HolderLookup.Provider lookup) {
+        return CaveMapItems.clientModel(itemStack, context);
     }
 
     @Override

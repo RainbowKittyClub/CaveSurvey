@@ -2,12 +2,17 @@ package ir.mehradn.cavesurvey.item;
 
 import java.util.function.Function;
 
+import eu.pb4.polymer.resourcepack.api.PolymerResourcePackUtils;
+import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
+
 import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Rarity;
 import net.minecraft.world.item.component.MapDecorations;
 
@@ -29,6 +34,15 @@ public final class CaveMapItems {
 
     /** Forces registration; the fields above do the work. */
     public static void init() {
+    }
+
+    /**
+     * Returns the item model a client is sent for a cave map: its own when the client has the
+     * server's resource pack, else null, which makes Polymer send the vanilla map's model.
+     */
+    public static Identifier clientModel(ItemStack stack, PacketContext context) {
+        return PolymerResourcePackUtils.hasMainPack(context)
+                ? stack.get(DataComponents.ITEM_MODEL) : null;
     }
 
     // Items.registerItem is private, and 26.x items need their id set before construction.
